@@ -28,7 +28,9 @@ class Seq2SeqModel(object):
         params['isTraining'] = True
         # Task specification
         params['buckets'] = {'char':[(210, 60), (346, 120), (548, 180), (850, 200),
-                                     (1500, 380)]}
+                                     (1500, 380)],
+                             'phone': [(210, 50), (346, 110), (548, 140), (850, 150),
+                                       (1500, 250)]}
         params['tasks'] = {'char'}
         params['num_layers'] = {'char':4}
         params['feat_length'] = 80

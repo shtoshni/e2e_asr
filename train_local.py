@@ -25,7 +25,7 @@ import subprocess
 tf.logging.set_verbosity(tf.logging.ERROR)
 
 
-# Use the following buckets: 
+# Use the following buckets:
 #_buckets = [(296, (85, 55)), (1498, (364, 221))]
 #_buckets = [(1498, (364, 221))]
 _buckets = [(210, (60, 50)), (346, (120, 110))]
@@ -45,11 +45,11 @@ def parse_tasks(task_string):
         task_dict['phone'] = 1
 
     return task_dict
-    
+
 
 def parse_options():
     parser = argparse.ArgumentParser()
-    
+
     parser.add_argument("-lr", "--learning_rate", default=1e-3, type=float, help="learning rate")
     parser.add_argument("-lr_decay", "--learning_rate_decay_factor", default=0.95, type=float, help="multiplicative decay factor for learning rate")
     parser.add_argument("-opt", "--optimizer", default="adam", type=str, help="Optimizer")
@@ -67,7 +67,7 @@ def parse_options():
 
     parser.add_argument("-tv_file_phone", "--target_vocab_file_phone", default="phone.txt", type=str, help="Vocab file for phone target")
     parser.add_argument("-tv_file_char", "--target_vocab_file_char", default="char.txt", type=str, help="Vocab file for character target")
-    
+
     parser.add_argument("-vocab_dir", "--vocab_dir", default="/share/data/speech/shtoshni/research/asr_multi/data/vocab", type=str, help="Vocab directory")
     #parser.add_argument("-data_dir", "--data_dir", default="/share/data/speech/shtoshni/research/asr_multi/data", type=str, help="Data directory")
     #parser.add_argument("-data_dir", "--data_dir", default="/share/data/speech/shtoshni/research/asr_multi/data/queue_delta", type=str, help="Data directory")
@@ -93,22 +93,22 @@ def parse_options():
     parser.add_argument("-var_noise", "--var_noise", default=False, action="store_true", help="Add variational noise?")
     parser.add_argument("-sch_samp", "--sch_samp", default=False, action="store_true", help="Do pyramid at feature level as well?")
     parser.add_argument("-l2_weight", "--l2_weight", default=0.0, type=float, help="L2 loss weight")
-    
+
     parser.add_argument("-num_files", "--num_files", default=50, type=int, help="Num files")
     parser.add_argument("-max_epochs", "--max_epochs", default=30, type=int, help="Max epochs")
     parser.add_argument("-num_check", "--steps_per_checkpoint", default=100, type=int, help="Number of steps before updated model is saved")
     parser.add_argument("-eval", "--eval_dev", default=False, action="store_true", help="Get dev set results using the last saved model")
     parser.add_argument("-test", "--test", default=False, action="store_true", help="Get test results using the last saved model")
     parser.add_argument("-run_id", "--run_id", default=0, type=int, help="Run ID")
-    
+
     args = parser.parse_args()
     arg_dict = vars(args)
-   
+
     data_limits = {}
     data_limits['FEAT_LEN'] = arg_dict['feat_length']
-    data_limits['_PAD_VEC'] = np.zeros(data_limits['FEAT_LEN'], dtype=np.float32) 
+    data_limits['_PAD_VEC'] = np.zeros(data_limits['FEAT_LEN'], dtype=np.float32)
     data_limits = bunchify(data_limits)
-    
+
     arg_dict['task_to_id'] = parse_tasks(arg_dict['tasks'])
 
     feat_length_string = ""
@@ -132,31 +132,31 @@ def parse_options():
         conv_string = "use_conv_"
         conv_string += "filter_dim_" + str(arg_dict['conv_filter_dimension']) + "_"
         conv_string += "num_channel_" + str(arg_dict['conv_num_channel']) + "_"
-    
+
     num_layer_string = ""
     for task in arg_dict['task_to_id']:
-        num_layer_string += 'nl' + task + '_' + str(arg_dict['num_layers_' + task]) + '_' 
+        num_layer_string += 'nl' + task + '_' + str(arg_dict['num_layers_' + task]) + '_'
 
 
-    train_dir = ('lr_' + str(arg_dict['learning_rate']) + '_' +  
-                'bsize_' + str(arg_dict['batch_size']) + '_' +   
-                'esize_' + str(arg_dict['embedding_size']) + '_' +  
-                'hsize_' + str(arg_dict['hidden_size']) + '_' +  
-                'hsize_dec_' + str(arg_dict['hidden_size_decoder']) + '_' +  
+    train_dir = ('lr_' + str(arg_dict['learning_rate']) + '_' +
+                'bsize_' + str(arg_dict['batch_size']) + '_' +
+                'esize_' + str(arg_dict['embedding_size']) + '_' +
+                'hsize_' + str(arg_dict['hidden_size']) + '_' +
+                'hsize_dec_' + str(arg_dict['hidden_size_decoder']) + '_' +
 
-                skip_string + 
+                skip_string +
                 bi_dir_string +
-                base_pyramid_string + 
-                conv_string + 
+                base_pyramid_string +
+                conv_string +
 
-                num_layer_string + 
-                feat_length_string + 
+                num_layer_string +
+                feat_length_string +
 
-                'out_prob_' + str(arg_dict['output_keep_prob']) + '_' + 
-                'run_id_' + str(arg_dict['run_id']) + '_' + 
+                'out_prob_' + str(arg_dict['output_keep_prob']) + '_' +
+                'run_id_' + str(arg_dict['run_id']) + '_' +
                 'cmvn')
 
-     
+
     arg_dict['train_dir'] = os.path.join(arg_dict['train_base_dir'], train_dir)
     arg_dict['apply_dropout'] = False
 
@@ -182,7 +182,7 @@ def parse_options():
         arg_dict['apply_dropout'] = True
         if not os.path.exists(arg_dict['train_dir']):
             os.makedirs(arg_dict['train_dir'])
-    
+
         ## Sort the arg_dict to create a parameter file
         parameter_file = 'parameters.txt'
         sorted_args = sorted(arg_dict.items(), key=operator.itemgetter(0))
@@ -193,10 +193,10 @@ def parse_options():
                 sys.stdout.flush()
                 g.write(arg + "\t" + str(arg_val) + "\n")
 
-    options = bunchify(arg_dict) 
+    options = bunchify(arg_dict)
     options.data_limits = data_limits
     return options
-    
+
 def load_dev_data():
     dev_data_path = os.path.join(FLAGS.data_dir, 'dev' + PREFIX + '.pickle')
     dev_set = pickle.load(open(dev_data_path))
@@ -209,8 +209,8 @@ def load_dev_data():
 
 def get_train_data():
     #train_data_path = os.path.join(FLAGS.data_dir, "train" + "0")#".?")
-    #all_files = glob.glob(FLAGS.data_dir + "/train*") 
-    all_files = glob.glob(FLAGS.data_dir + "/train0.1*") 
+    #all_files = glob.glob(FLAGS.data_dir + "/train*")
+    all_files = glob.glob(FLAGS.data_dir + "/train0.1*")
     train_files = []
     for file_name in all_files:
         batch_idx = int(file_name.split(".")[1])
@@ -224,28 +224,28 @@ def get_train_data():
     for train_file in train_files:
         print(train_file)
         number_of_instances = sum([1 for _ in tf.python_io.tf_record_iterator(train_file)])
-        ## Using ceil below since we allow for smaller final batch 
+        ## Using ceil below since we allow for smaller final batch
         number_of_batches += int(np.ceil(number_of_instances/float(FLAGS.batch_size)))
-    
+
     return train_files, number_of_batches
 
 
 def get_model_graph(session, forward_only, task_to_id=None, queue=None):
   model = seq2seq_model.Seq2SeqModel(
-      FLAGS.output_vocab_size, _buckets, 
+      FLAGS.output_vocab_size, _buckets,
       FLAGS.hidden_size, FLAGS.hidden_size_decoder,
       FLAGS.num_layers, FLAGS.num_layers_decoder,
-      FLAGS.embedding_size, FLAGS.skip_step, FLAGS.bi_dir, 
-      FLAGS.use_convolution, FLAGS.conv_filter_dimension, FLAGS.conv_num_channel, 
-      FLAGS.max_gradient_norm, FLAGS.batch_size, FLAGS.learning_rate, 
-      FLAGS.learning_rate_decay_factor, FLAGS.optimizer, FLAGS.data_limits, 
+      FLAGS.embedding_size, FLAGS.skip_step, FLAGS.bi_dir,
+      FLAGS.use_convolution, FLAGS.conv_filter_dimension, FLAGS.conv_num_channel,
+      FLAGS.max_gradient_norm, FLAGS.batch_size, FLAGS.learning_rate,
+      FLAGS.learning_rate_decay_factor, FLAGS.optimizer, FLAGS.data_limits,
       queue=queue,
-      use_lstm=FLAGS.lstm, output_keep_prob=FLAGS.output_keep_prob, 
-      forward_only=forward_only, 
+      use_lstm=FLAGS.lstm, output_keep_prob=FLAGS.output_keep_prob,
+      forward_only=forward_only,
       base_pyramid=FLAGS.base_pyramid,
       l2_weight=FLAGS.l2_weight,
       sch_samp=FLAGS.sch_samp,
-      task_to_id=task_to_id, 
+      task_to_id=task_to_id,
       apply_dropout=FLAGS.apply_dropout)
 
   return model
@@ -269,7 +269,7 @@ def create_model(session, forward_only, model_path=None, task_to_id=None, queue=
   else:
     print("Created model with fresh parameters.")
     sys.stdout.flush()
-    session.run([tf.global_variables_initializer(), tf.local_variables_initializer()]) 
+    session.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
     steps_done = 0
   return model, steps_done
 
@@ -282,7 +282,7 @@ def train():
     print("Loading train data from %s" % FLAGS.data_dir)
     train_files, num_batch = get_train_data()
     print ("Number of minibatches: %d" %(num_batch))
-    bucket_queue = tf.train.string_input_producer(train_files, shuffle=True) 
+    bucket_queue = tf.train.string_input_producer(train_files, shuffle=True)
 
     # Create model.
     print("Creating %d layers of %d units." % (max(FLAGS.num_layers.values()), FLAGS.hidden_size))
@@ -292,19 +292,19 @@ def train():
     with tf.variable_scope("model", reuse=True):
         model_dev = get_model_graph(sess, forward_only=True, task_to_id=eval_task_to_id)
 
-    
+
     # Prepare training data
     epoch = model.epoch.eval()
     epochs_left = FLAGS.max_epochs - epoch
 
     coord = tf.train.Coordinator()
-    threads = tf.train.start_queue_runners(sess=sess, coord=coord)  
+    threads = tf.train.start_queue_runners(sess=sess, coord=coord)
 
     # Test dev results
     dev_set = load_dev_data()
-    asr_err_best = 1#asr_decode(model_dev, sess, dev_set) 
+    asr_err_best = 1#asr_decode(model_dev, sess, dev_set)
 
-    # This is the training loop. 
+    # This is the training loop.
     step_time, loss = 0.0, 0.0
     current_step = 0
     previous_losses = []
@@ -317,11 +317,11 @@ def train():
             while not coord.should_stop():
                 print("Epochs done: %d" %epoch)
                 sys.stdout.flush()
-                
+
                 for i in xrange(total_minibatches):
                     task = "char"
                     cur_task = "char"
-                    start_time = time.time() 
+                    start_time = time.time()
                     output_feed = [model.seq_len,
                                     model.updates,  # Update Op that does SGD.
                                     model.gradient_norms,  # Gradient norm.
@@ -334,14 +334,14 @@ def train():
 
 
                     step_loss = step_loss[task]
-                    
+
                     step_time += (time.time() - start_time) / FLAGS.steps_per_checkpoint
                     sys.exit()
-                    if cur_task == 'char': 
+                    if cur_task == 'char':
                         #print(inp.shape)
                         #print (out["char"].shape)
                         #print (seq_len.shape)
-                        #print (np.max(seq_len_target["char"])) 
+                        #print (np.max(seq_len_target["char"]))
                         loss += step_loss / FLAGS.steps_per_checkpoint
                         current_step += 1
 
@@ -361,8 +361,8 @@ def train():
                           if len(previous_losses) > 0 and loss > previous_losses[-1]:
                             sess.run(model.learning_rate_decay_op)
                           previous_losses.append(loss)
-                          
-                          asr_err_cur = asr_decode(model_dev, sess, dev_set) 
+
+                          asr_err_cur = asr_decode(model_dev, sess, dev_set)
                           print ("ASR error: %.4f" %(asr_err_cur))
                           ## Early stopping - ONLY UPDATING MODEL IF BETTER PERFORMANCE ON DEV
                           if asr_err_best > asr_err_cur:
@@ -374,7 +374,7 @@ def train():
                             checkpoint_path = os.path.join(FLAGS.train_dir, "asr_small.ckpt")
                             model.saver.save(sess, checkpoint_path, global_step=model.global_step, write_meta_graph=False)
                           step_time, loss = 0.0, 0.0
-                
+
                 ## Update epoch counter
                 sess.run(model.epoch_incr)
                 epoch += 1
@@ -386,9 +386,9 @@ def train():
 
     coord.request_stop()
     coord.join(threads)
-    
 
-def asr_decode(model_dev, sess, dev_set):  
+
+def asr_decode(model_dev, sess, dev_set):
     # Load vocabularies.
   char_vocab_path = os.path.join(FLAGS.vocab_dir, FLAGS.target_vocab_file['char'])
   char_vocab, rev_char_vocab = data_utils.initialize_vocabulary(char_vocab_path)
@@ -396,7 +396,7 @@ def asr_decode(model_dev, sess, dev_set):
   gold_asr_file = os.path.join(FLAGS.train_dir, 'gold_asr.txt')
   decoded_asr_file = os.path.join(FLAGS.train_dir, 'decoded_asr.txt')
   raw_asr_file = os.path.join(FLAGS.train_dir, 'raw_asr.txt')
-  
+
   fout_gold = open(gold_asr_file, 'w')
   fout_raw_asr = open(raw_asr_file, 'w')
   fout_asr = open(decoded_asr_file, 'w')
@@ -409,11 +409,11 @@ def asr_decode(model_dev, sess, dev_set):
   batch_size=FLAGS.batch_size
   for bucket_id in xrange(len(_buckets)):
     bucket_size = len(dev_set[bucket_id])
-    offsets = np.arange(0, bucket_size, batch_size) 
+    offsets = np.arange(0, bucket_size, batch_size)
     for batch_offset in offsets:
         all_examples = dev_set[bucket_id][batch_offset:batch_offset+batch_size]
 
-        model_dev.batch_size = len(all_examples)        
+        model_dev.batch_size = len(all_examples)
         log_mels = [x[0] for x in all_examples]
         gold_ids = [x[1] for x in all_examples]
         sent_id_vals = [x[2] for x in all_examples]
@@ -421,7 +421,7 @@ def asr_decode(model_dev, sess, dev_set):
 
         encoder_inputs, decoder_inputs,  seq_len, seq_len_target = \
                 model_dev.get_batch({bucket_id: zip(log_mels, gold_ids)}, bucket_id, task='char', do_eval=True)
-        
+
 
         _, _, output_logits = model_dev.step(sess, encoder_inputs, decoder_inputs,\
                          seq_len, seq_len_target, False)
@@ -431,7 +431,7 @@ def asr_decode(model_dev, sess, dev_set):
         outputs = np.reshape(outputs, (max(seq_len_target['char']), model_dev.batch_size)) ##T*B
 
         to_decode = np.array(outputs).T ## T * B and the transpose makes it B*T
-        
+
         num_dev_sents += to_decode.shape[0]
         for sent_id in range(to_decode.shape[0]):
           asr_out = list(to_decode[sent_id, :])
@@ -446,7 +446,7 @@ def asr_decode(model_dev, sess, dev_set):
           raw_asr_words, decoded_words = data_utils.get_relevant_words(decoded_asr)
           _, gold_words = data_utils.get_relevant_words(gold_asr)
 
-          total_errors += ed.eval(gold_words, decoded_words) 
+          total_errors += ed.eval(gold_words, decoded_words)
           total_words += len(gold_words)
 
           fout_gold.write('{}\n'.format(' '.join(gold_words)))
@@ -464,14 +464,14 @@ def asr_decode(model_dev, sess, dev_set):
 def dump_trainable_vars():
     model_prefix = FLAGS.train_dir.split("/")[-1]
     model_file = os.path.join(FLAGS.train_dir, "s2p_tuned_" + model_prefix + ".pickle")
-    
+
     with open(model_file, "w") as f:
         var_name_to_val = {}
         for var in tf.trainable_variables():
             var_name_to_val[var.name] = var.eval()
 
         pickle.dump(var_name_to_val, f)
-   
+
 
 def decode():
   """ Decode file sentence-by-sentence  """
@@ -479,13 +479,13 @@ def decode():
     # Create model and load parameters.
     with tf.variable_scope("model"):
       model_dev, steps_done = create_model(sess, forward_only=True, task_to_id=eval_task_to_id)
-    
+
     print ("Epochs done: %d" %model_dev.epoch.eval())
     dump_trainable_vars()
     dev_set = load_dev_data()
 
     start_time = time.time()
-    asr_decode(model_dev, sess, dev_set) 
+    asr_decode(model_dev, sess, dev_set)
     time_elapsed = time.time() - start_time
     print("Decoding all dev time: ", time_elapsed)
 

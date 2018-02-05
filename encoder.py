@@ -143,14 +143,14 @@ class Encoder(object):
             attention_states = {}
             time_major_states = {}
             seq_len_inps = {}
+            max_depth = 0
 
             for task, num_layer in num_layers.items():
                 if task == "state":
                     time_major_states[num_layer] = None
                 else:
                     attention_states[num_layer] = None
-
-            max_depth = max(num_layers.keys())
+                max_depth = max(max_depth, num_layers[task])
 
             resolution_fac = params.initial_res_fac  # Term to maintain time-resolution factor
             for i in xrange(max_depth):
