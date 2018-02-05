@@ -11,7 +11,7 @@ from __future__ import print_function
 
 from six.moves import xrange
 from six.moves import zip
-
+from bunch import Bunch
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import array_ops
@@ -46,11 +46,17 @@ class Encoder(object):
 
     def __init__(self, params=None):
         """Initializer for encoder class."""
-        self.cell = rnn_cell.BasicLSTMCell(self.hidden_size)
-        if self.isTraining:
+        if params is not None:
+            self.params = params
+        else:
+            self.params = self.class_params()
+        params = self.params
+
+        self.cell = rnn_cell.BasicLSTMCell(params.hidden_size)
+        if params.isTraining:
             # During training a dropout wrapper is used
             self.cell = rnn_cell.DropoutWrapper(
-                self.cell, output_keep_prob=self.out_prob)
+                self.cell, output_keep_prob=params.out_prob)
 
 
     def _layer_encoder_input(self, encoder_inputs, seq_len, layer_depth=1):
@@ -70,10 +76,11 @@ class Encoder(object):
             encoder_outputs: Output of LSTM, a 3-D tensor of shape TxBxH.
             final_state: Final hidden state of LSTM.
         """
+        params = self.params
         with variable_scope.variable_scope("RNNLayer%d" % (layer_depth),
                                            initializer=tf.random_uniform_initializer(-0.075, 0.075)):
             # Check if the encoder needs to be bidirectional or not.
-            if self.bi_dir:
+            if params.bi_dir:
                 (encoder_output_fw, encoder_output_bw), _ = \
                     rnn.bidirectional_dynamic_rnn(
                         self.cell, self.cell, encoder_inputs,
@@ -90,7 +97,7 @@ class Encoder(object):
             return encoder_outputs
 
 
-    def _get_pyramid_input(input_tens, seq_len):
+    def _get_pyramid_input(self, input_tens, seq_len):
         """
         Assumes batch major input tensor - input_tens
         """
@@ -118,7 +125,7 @@ class Encoder(object):
         return output_tens, seq_len
 
 
-    def __call__(self, encoder_inp, seq_len, num_layers):
+    def __call__(self, encoder_input, seq_len, num_layers):
         """Run the encoder on gives input.
 
         Args:
@@ -149,27 +156,27 @@ class Encoder(object):
             for i in xrange(max_depth):
                 layer_depth = i+1
                 # Transpose the input into time major input
-                encoder_outputs = encode_input(tf.transpose(encoder_inputs, [1, 0, 2]),
-                                               seq_len, layer_depth)
+                encoder_output = self._layer_encoder_input(tf.transpose(encoder_input, [1, 0, 2]),
+                                                           seq_len, layer_depth)
 
                 if time_major_states.has_key(layer_depth):
-                    time_major_states[layer_depth] = encoder_outputs
+                    time_major_states[layer_depth] = encoder_output
 
                 # Make the encoder output batch major
-                encoder_outputs = tf.transpose(encoder_outputs, [1, 0, 2])
+                encoder_output = tf.transpose(encoder_output, [1, 0, 2])
 
                 if attention_states.has_key(layer_depth):
-                    attention_states[layer_depth] = encoder_outputs
+                    attention_states[layer_depth] = encoder_output
 
                 seq_len_inps[layer_depth] = seq_len
 
                 # For every character there are rougly 8 frames
                 if params.skip_step > 1 and i != (max_depth-1) and resolution_fac <= 8:
-                    encoder_inputs, seq_len = self._get_pyramid_input(
-                        encoder_outputs, seq_len)
+                    encoder_input, seq_len = self._get_pyramid_input(
+                        encoder_output, seq_len)
                     resolution_fac *= 2
                 else:
-                    encoder_inputs = encoder_outputs
+                    encoder_input = encoder_output
 
             return attention_states, time_major_states, seq_len_inps
 

@@ -8,16 +8,12 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from six.moves import xrange
-from six.moves import zip
+from bunch import Bunch
 
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import control_flow_ops
-from tensorflow.python.ops import embedding_ops
-from tensorflow.python.ops import math_ops
-from tensorflow.python.ops import nn_ops
 from tensorflow.python.ops import rnn
 import tensorflow.contrib.rnn as rnn_cell
 from tensorflow.python.ops import variable_scope
@@ -38,7 +34,7 @@ class Decoder(object):
         params['out_prob'] = 0.7
         params['hidden_size'] = 256
         params['num_layers'] = 1
-        params['emb_size'] = 10
+        params['emb_size'] = 256
         params['vocab_size'] = 50
         params['samp_prob'] = 0.1
         params['max_output'] = 400
@@ -94,8 +90,7 @@ class Decoder(object):
                 "embedding", [params.vocab_size, params.emb_size],
                 initializer=tf.random_uniform_initializer(-1.0, 1.0))
             # Embed the decoder input via embedding lookup operation
-            embedded_inp = embedding_ops.embedding_lookup(embedding,
-                                                          decoder_inputs)
+            embedded_inp = tf.nn.embedding_lookup(embedding, decoder_inputs)
         if params.isTraining:
             if params.isSampling:
                 # This loop function samples the output from the posterior
@@ -111,8 +106,8 @@ class Decoder(object):
         return (embedded_inp, loop_function)
 
     @abstractmethod
-    def decode(self, decoder_inp, seq_len,
-               encoder_hidden_states, final_state, seq_len_inp):
+    def __call__(self, decoder_inp, seq_len, encoder_hidden_states,
+                 seq_len_inp):
         """Abstract method that needs to be extended by Inheritor classes.
 
         Args:
@@ -142,8 +137,8 @@ class Decoder(object):
                 with maximum probability (logit score).
         """
         def loop_function(logits):
-            max_symb = math_ops.argmax(logits, 1)
-            emb_symb = embedding_ops.embedding_lookup(embedding, max_symb)
+            max_symb = tf.argmax(logits, 1)
+            emb_symb = tf.nn.embedding_lookup(embedding, max_symb)
             return emb_symb
 
         return loop_function
@@ -170,7 +165,7 @@ class Decoder(object):
             # Reshaping is required to remove the extra dimension introduced
             # by sampling for a batch size of 1.
             prev_symbol = tf.reshape(tf.multinomial(prev, 1), [-1])
-            emb_prev = embedding_ops.embedding_lookup(embedding, prev_symbol)
+            emb_prev = tf.nn.embedding_lookup(embedding, prev_symbol)
             return emb_prev
 
         return loop_function

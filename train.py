@@ -34,25 +34,14 @@ NUM_THREADS = 1
 FLAGS = object()
 
 def parse_tasks(task_string):
-    task_dict = {'char': 0}
-    task_list = list(set(task_string))
+    tasks = ["char"]
     if "p" in task_list:
-        task_dict['phone'] = 1
-
-    return task_dict
+        tasks.append("phone")
+    return tasks
 
 
 def parse_options():
     parser = argparse.ArgumentParser()
-
-    parser.add_argument("-lr", "--learning_rate", default=1e-3, type=float, help="learning rate")
-    parser.add_argument("-lr_decay", "--learning_rate_decay_factor", default=0.9, type=float, help="multiplicative decay factor for learning rate")
-    parser.add_argument("-opt", "--optimizer", default="adam", type=str, help="Optimizer")
-    parser.add_argument("-bsize", "--batch_size", default=64, type=int, help="Mini-batch Size")
-
-    parser.add_argument("-esize", "--embedding_size", default=256, type=int, help="Embedding Size")
-    parser.add_argument("-hsize", "--hidden_size", default=256, type=int, help="Hidden layer size")
-    parser.add_argument("-hsize_decoder", "--hidden_size_decoder", default=256, type=int, help="Hidden layer size")
 
     parser.add_argument("-num_layers_phone", "--num_layers_phone", default=1, type=int, help="Number of layers to decode side")
     parser.add_argument("-num_layers_char", "--num_layers_char", default=4, type=int, help="Number of layers to decode side")
@@ -64,28 +53,21 @@ def parse_options():
     parser.add_argument("-tv_file_char", "--target_vocab_file_char", default="char.txt", type=str, help="Vocab file for character target")
 
     parser.add_argument("-vocab_dir", "--vocab_dir", default="/share/data/speech/shtoshni/research/asr_multi/data/vocab", type=str, help="Vocab directory")
-    parser.add_argument("-data_dir", "--data_dir", default="/share/data/speech/shtoshni/research/asr_multi/data/ctc_data", type=str, help="Data directory")
-    #parser.add_argument("-data_dir", "--data_dir", default="/scratch/asr_multi/data/queue_data", type=str, help="Data directory")
-    parser.add_argument("-tb_dir", "--train_base_dir", default="/share/data/speech/shtoshni/research/asr_multi/models", type=str, help="Training directory")
-    parser.add_argument("-bm_dir", "--best_model_dir", default="/share/data/speech/shtoshni/research/asr_multi/models/best_models", type=str, help="Training directory")
+    #parser.add_argument("-data_dir", "--data_dir", default="/share/data/speech/shtoshni/research/asr_multi/data/ctc_data", type=str, help="Data directory")
+    #parser.add_argument("-tb_dir", "--train_base_dir", default="/share/data/speech/shtoshni/research/asr_multi/models", type=str, help="Training directory")
+    #parser.add_argument("-bm_dir", "--best_model_dir", default="/share/data/speech/shtoshni/research/asr_multi/models/best_models", type=str, help="Training directory")
+    parser.add_argument("-data_dir", "--data_dir", default="/scratch/asr_multi/data/ctc_data", type=str, help="Data directory")
+    parser.add_argument("-tb_dir", "--train_base_dir", default="/scratch/asr_multi/models", type=str, help="Training directory")
+    parser.add_argument("-bm_dir", "--best_model_dir", default="/scratch/asr_multi/models/best_models", type=str, help="Training directory")
     parser.add_argument("-tasks", "--tasks", default="", type=str, help="Auxiliary task choices")
 
     parser.add_argument("-bi_dir", "--bi_dir", default=True, action="store_true", help="Make encoder bi-directional")
     parser.add_argument("-skip_step", "--skip_step", default=1, type=int, help="Frame skipping factor as we go up the stacked layers")
 
-    parser.add_argument("-lstm", "--lstm", default=True, action="store_true", help="RNN cell to use")
     parser.add_argument("-out_prob", "--output_keep_prob", default=0.9, type=float, help="Output keep probability for dropout")
-    parser.add_argument("-apply_dropout", "--apply_dropout", default=False, action="store_true", help="Use dropout or not")
-
-    ## Additional features
-    parser.add_argument("-use_conv", "--use_convolution", default=False, action="store_true", help="Use convolution feature in attention")
-    parser.add_argument("-conv_filter", "--conv_filter_dimension", default=80, type=int, help="Convolution filter width dimension")
-    parser.add_argument("-conv_channel", "--conv_num_channel", default=3, type=int, help="Number of channels in the convolution feature extracted")
-
     parser.add_argument("-feat_len", "--feat_length", default=80, type=int, help="Number of features per frame")
     parser.add_argument("-base_pyramid", "--base_pyramid", default=False, action="store_true", help="Do pyramid at feature level as well?")
     parser.add_argument("-sch_samp", "--sch_samp", default=True, action="store_true", help="Do pyramid at feature level as well?")
-    parser.add_argument("-l2_weight", "--l2_weight", default=0.0, type=float, help="L2 loss weight")
 
     parser.add_argument("-avg", "--avg", default=False, action="store_true", help="Average the loss")
     parser.add_argument("-prefix", "--prefix", default="", type=str, help="Determine which dev file to use")
@@ -98,25 +80,12 @@ def parse_options():
     args = parser.parse_args()
     arg_dict = vars(args)
 
-    data_limits = {}
-    data_limits['FEAT_LEN'] = arg_dict['feat_length']
-    data_limits['_PAD_VEC'] = np.zeros(data_limits['FEAT_LEN'], dtype=np.float32)
-    data_limits = bunchify(data_limits)
-
-    arg_dict['task_to_id'] = parse_tasks(arg_dict['tasks'])
-    arg_dict['steps_per_checkpoint'] = int((64/arg_dict['batch_size'])*500)
-
-    feat_length_string = ""
-    if data_limits.FEAT_LEN != 80:
-        feat_length_string = "fl_" + str(data_limits.FEAT_LEN) + "_"
+    arg_dict['tasks'] = parse_tasks(arg_dict['tasks'])
+    arg_dict['steps_per_checkpoint'] = 500
 
     skip_string = ""
     if arg_dict['skip_step'] != 1:
         skip_string = "skip_" + str(arg_dict['skip_step']) + "_"
-
-    bi_dir_string = ""
-    if arg_dict['bi_dir'] != False:
-        bi_dir_string = "bi_dir_"
 
     base_pyramid_string = ""
     if arg_dict['base_pyramid'] != False:
@@ -126,28 +95,18 @@ def parse_options():
     if arg_dict['sch_samp'] != False:
         samp_string = "samp_"
 
-    conv_string = ""
-    if arg_dict['use_convolution']:
-        conv_string = "use_conv_"
-        conv_string += "filter_dim_" + str(arg_dict['conv_filter_dimension']) + "_"
-        conv_string += "num_channel_" + str(arg_dict['conv_num_channel']) + "_"
-
     num_layer_string = ""
     for task in arg_dict['task_to_id']:
         num_layer_string += 'nl' + task + '_' + str(arg_dict['num_layers_' + task]) + '_'
 
 
-    train_dir = ('lr_' + str(arg_dict['learning_rate']) + '_' +
-                'bsize_' + str(arg_dict['batch_size']) + '_' +
-                'esize_' + str(arg_dict['embedding_size']) + '_' +
+    train_dir = (
                 'hsize_' + str(arg_dict['hidden_size']) + '_' +
                 'hsize_dec_' + str(arg_dict['hidden_size_decoder']) + '_' +
 
                 skip_string +
-                bi_dir_string +
                 base_pyramid_string +
                 samp_string +
-                conv_string +
 
                 num_layer_string +
                 feat_length_string +
@@ -199,7 +158,6 @@ def parse_options():
                 g.write(arg + "\t" + str(arg_val) + "\n")
 
     options = bunchify(arg_dict)
-    options.data_limits = data_limits
     return options
 
 def load_dev_data(test=False):
