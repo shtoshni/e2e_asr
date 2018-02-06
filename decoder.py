@@ -8,6 +8,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import abc
+
 from bunch import Bunch
 
 from tensorflow.python.framework import dtypes
@@ -18,7 +20,6 @@ from tensorflow.python.ops import rnn
 import tensorflow.contrib.rnn as rnn_cell
 from tensorflow.python.ops import variable_scope
 from tensorflow.contrib.rnn.python.ops.core_rnn_cell import _Linear
-from tensorflow.python.ops.rnn_cell_impl import _linear as linear
 from tensorflow.contrib.cudnn_rnn import CudnnLSTMSaveable as CudnnLSTM
 import tensorflow as tf
 
@@ -31,11 +32,11 @@ class Decoder(object):
         """Decoder class parameters."""
         params = Bunch()
         params['isTraining'] = True
-        params['out_prob'] = 0.7
+        params['out_prob'] = 0.9
         params['hidden_size'] = 256
         params['num_layers'] = 1
         params['emb_size'] = 256
-        params['vocab_size'] = 50
+        params['vocab_size'] = 48
         params['samp_prob'] = 0.1
         params['max_output'] = 400
 
@@ -49,12 +50,14 @@ class Decoder(object):
         """
         if params is None:
             self.params = self.class_params()
+        else:
+            self.params = params
+        params = self.params
+
         if params.isTraining and (params.samp_prob > 0.0):
             self.params.isSampling = True
 
-        self.params.cell = self.set_cell_config()
-
-    def set_cell_config(self, use_proj=True):
+    def get_cell(self, use_proj=True):
         """Create the LSTM cell used by decoder."""
         params = self.params
         cell = rnn_cell.BasicLSTMCell(params.hidden_size)
@@ -105,7 +108,7 @@ class Decoder(object):
 
         return (embedded_inp, loop_function)
 
-    @abstractmethod
+    @abc.abstractmethod
     def __call__(self, decoder_inp, seq_len, encoder_hidden_states,
                  seq_len_inp):
         """Abstract method that needs to be extended by Inheritor classes.

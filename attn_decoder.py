@@ -13,11 +13,9 @@ from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import control_flow_ops
 from tensorflow.python.ops import embedding_ops
 from tensorflow.python.ops import math_ops
-from tensorflow.python.ops import nn_ops
 from tensorflow.python.ops import rnn
 from tensorflow.python.ops import variable_scope
-from tensorflow.contrib.rnn.python.ops.core_rnn_cell import _Linear
-from tensorflow.python.ops.rnn_cell_impl import _linear as linear
+from tensorflow.contrib.rnn.python.ops.core_rnn_cell import _linear
 from decoder import Decoder
 
 
@@ -27,15 +25,15 @@ class AttnDecoder(Decoder):
     @classmethod
     def class_params(cls):
         """Defines params of the class."""
-        params = super(Decoder, cls).class_params()
-        params['attention_vec_size'] = 128
+        params = super(AttnDecoder, cls).class_params()
+        params['attention_vec_size'] = 64
         return params
 
     def __init__(self, params=None):
         """Initializer."""
         super(AttnDecoder, self).__init__(params)
         # No output projection required in attention decoder
-        self.params.cell = self.set_cell_config(use_proj=False)
+        self.cell = self.get_cell()
 
     def __call__(self, decoder_inp, seq_len,
                  encoder_hidden_states, seq_len_inp):
@@ -50,31 +48,38 @@ class AttnDecoder(Decoder):
         inputs_ta = inputs_ta.unstack(decoder_inputs)
 
         batch_size = tf.shape(decoder_inputs)[1]
+        attn_length = tf.shape(encoder_hidden_states)[1]
         emb_size = decoder_inputs.get_shape()[2].value
+        attn_size = encoder_hidden_states.get_shape()[2].value
 
         # Attention variables
         attn_mask = tf.sequence_mask(tf.cast(seq_len_inp, tf.int32), dtype=tf.float32)
 
+        batch_attn_size = array_ops.stack([batch_size, attn_size])
+        attn = array_ops.zeros(batch_attn_size, dtype=dtypes.float32)
+        batch_alpha_size = array_ops.stack([batch_size, attn_length, 1, 1])
+        alpha = array_ops.zeros(batch_alpha_size, dtype=dtypes.float32)
+
         with variable_scope.variable_scope("rnn_decoder"):
             # Calculate the W*h_enc component
-            hidden = tf.expand_dims(attention_states, 2)
+            hidden = tf.expand_dims(encoder_hidden_states, 2)
             W_attn = variable_scope.get_variable(
                 "AttnW", [1, 1, attn_size, params.attention_vec_size])
-            hidden_features = nn_ops.conv2d(hidden, W_attn, [1, 1, 1, 1], "SAME")
+            hidden_features = tf.nn.conv2d(hidden, W_attn, [1, 1, 1, 1], "SAME")
             v = variable_scope.get_variable("AttnV", [params.attention_vec_size])
 
             def raw_loop_function(time, cell_output, state, loop_state):
                 def attention(query, prev_alpha):
                     """Put attention masks on hidden using hidden_features and query."""
                     with variable_scope.variable_scope("Attention"):
-                        attn_proj = _Linear(query, params.attention_vec_size, True)
-                        y = attn_proj(query)
+                        y = _linear(query, params.attention_vec_size, True)
+                        #y = attn_proj(query)
                         y = array_ops.reshape(y, [-1, 1, 1, params.attention_vec_size])
                         s = math_ops.reduce_sum(
                             v * math_ops.tanh(hidden_features + y), [2, 3])
 
-                        alpha = nn_ops.softmax(s) * attn_mask
-                        sum_vec = tf.reduce_sum(alpha, reduction_indices=[1], keep_dims=True)
+                        alpha = tf.nn.softmax(s) * attn_mask
+                        sum_vec = tf.reduce_sum(alpha, reduction_indices=[1], keepdims=True)
                         norm_term = tf.tile(sum_vec, tf.stack([1, tf.shape(alpha)[1]]))
                         alpha = alpha / norm_term
 
@@ -84,12 +89,12 @@ class AttnDecoder(Decoder):
                     return tuple([context_vec, alpha])
 
                 # If loop_function is set, we use it instead of decoder_inputs.
-                elements_finished = (time >= seq_len)
+                elements_finished = (time >= tf.cast(seq_len, tf.int32))
                 finished = tf.reduce_all(elements_finished)
 
 
                 if cell_output is None:
-                    next_state = cell.zero_state(batch_size, dtype=tf.float32)  #initial_state
+                    next_state = self.cell.zero_state(batch_size, dtype=tf.float32)  #initial_state
                     output = None
                     loop_state = tuple([attn, alpha])
                     next_input = inputs_ta.read(time)
@@ -97,11 +102,13 @@ class AttnDecoder(Decoder):
                     next_state = state
                     loop_state = attention(cell_output, loop_state[1])
                     with variable_scope.variable_scope("AttnOutputProjection"):
-                        output = linear([cell_output] + list(loop_state[0]),
-                                        output_size, True)
+                        output = _linear([cell_output, loop_state[0]],
+                                            self.cell.output_size, True)
+                        #output = out_proj([cell_output] + list(loop_state[0]))
 
-                    if not isTraining:
-                        simple_input = loop_function(output, time)
+
+                    if not params.isTraining:
+                        simple_input = loop_function(output)
                     else:
                         if loop_function is not None:
                             print("Scheduled Sampling will be done")
@@ -123,8 +130,7 @@ class AttnDecoder(Decoder):
                     if input_size.value is None:
                         raise ValueError("Could not infer input size from input")
                     with variable_scope.variable_scope("InputProjection"):
-                        next_input_proj = _Linear([simple_input] + list(loop_state[0]), input_size, True)
-                        next_input = next_input_proj([simple_input] + list(loop_state[0]))
+                        next_input = _linear([simple_input, loop_state[0]], input_size, True)
 
                 return (elements_finished, next_input, next_state, output, loop_state)
 

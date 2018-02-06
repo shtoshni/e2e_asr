@@ -31,8 +31,8 @@ class Seq2SeqModel(object):
                                      (1500, 380)],
                              'phone': [(210, 50), (346, 110), (548, 140), (850, 150),
                                        (1500, 250)]}
-        params['tasks'] = {'char'}
-        params['num_layers'] = {'char':4}
+        params['tasks'] = ['char']
+        params['num_layers'] = {'char':1}
         params['feat_length'] = 80
 
         # Optimization params
@@ -45,8 +45,7 @@ class Seq2SeqModel(object):
 
         return params
 
-    def __init__(self, encoder, decoder, tasks, num_layers,
-                 queue=None, params=None):
+    def __init__(self, encoder, decoder, queue=None, params=None):
         """Initializer of class that defines the computational graph.
 
         Args:
@@ -60,9 +59,7 @@ class Seq2SeqModel(object):
 
         params = self.params
 
-        self.num_layers = num_layers
         self.queue = queue
-        self.tasks = tasks
 
         self.learning_rate = tf.Variable(float(params.learning_rate),
                                          trainable=False)
@@ -75,25 +72,29 @@ class Seq2SeqModel(object):
         self.epoch = tf.Variable(0, trainable=False)
         self.epoch_incr = self.epoch.assign(self.epoch + 1)
 
-        # Batch major
-        self.encoder_inputs = tf.placeholder(tf.float32, \
-                shape=[None, None, params.feat_length], name='encoder')
-        _batch_size = tf.shape(self.encoder_inputs)[0]
-        self.seq_len = tf.placeholder(tf.int64, shape=[_batch_size],
-                                      name="seq_len")
-        # Output sequence length placeholder
-        self.seq_len_target = {}
-        for task in params.tasks:
-            self.seq_len_target[task] = tf.placeholder(
-                tf.int64, shape=[_batch_size], name="seq_len_target_" + task)
+        if not params.isTraining:
+            # Batch major
+            self.encoder_inputs = tf.placeholder(tf.float32, \
+                    shape=[None, None, params.feat_length], name='encoder')
+            self.seq_len = tf.placeholder(tf.int64, shape=[None], name="seq_len")
+            # Output sequence length placeholder
+            self.seq_len_target = {}
+            for task in params.tasks:
+                self.seq_len_target[task] = tf.placeholder(
+                    tf.int32, shape=[None], name="seq_len_target_" + task)
 
-        self.decoder_inputs = {}
+            self.decoder_inputs = {}
+            for task in params.tasks:
+                # (T+1)*B -> EOS is an extra symbol as input but seq_len_target avoids that
+                self.decoder_inputs[task] = tf.placeholder(
+                    tf.int32, shape=[None, None], name="decoder_" + task)
+        else:
+            self.encoder_inputs, self.decoder_inputs, self.seq_len, \
+                self.seq_len_target = self.get_queue_batch()
+
         self.targets = {}
         self.target_weights = {}
         for task in params.tasks:
-            # (T+1)*B -> EOS is an extra symbol as input but seq_len_target avoids that
-            self.decoder_inputs[task] = tf.placeholder(
-                tf.int32, shape=[None, None], name="decoder_" + task)
             # Targets are shifted by one - T*B
             self.targets[task] = tf.slice(self.decoder_inputs[task], [1, 0], [-1, -1])
 
@@ -106,19 +107,19 @@ class Seq2SeqModel(object):
         # Create computational graph
         # First encode input
         self.encoder_hidden_states, self.time_major_states, self.seq_len_encs =\
-            encoder(self.encoder_inputs, self.seq_len, num_layers)
+            encoder(self.encoder_inputs, self.seq_len, params.num_layers)
 
         self.outputs = {}
         self.losses = {}
         for task in params.tasks:
             task_depth = params.num_layers[task]
             # Then decode
-            self.outputs[task] = decoder(
+            self.outputs[task] = decoder[task](
                 self.decoder_inputs[task], self.seq_len_target[task],
                 self.encoder_hidden_states[task_depth], self.seq_len_encs[task_depth])
             # Training outputs and losses.
             self.losses[task] = LossUtils.seq2seq_loss(
-                self.outputs[task], self.targets[task], self.seq_len_target)
+                self.outputs[task], self.targets[task], self.seq_len_target[task])
 
             tf.summary.scalar('Negative log likelihood ' + task, self.losses[task])
 
@@ -146,8 +147,8 @@ class Seq2SeqModel(object):
             # possible early in training
             clipped_gradients, norm = tf.clip_by_global_norm(gradients,
                                                              params.max_gradient_norm)
-            self.gradient_norms = norm
-            tf.summary.scalar('Gradient Norm', self.gradient_norms)
+            self.gradient_norm = norm
+            tf.summary.scalar('Gradient Norm', self.gradient_norm)
             # Apply gradients
             self.updates = opt.apply_gradients(
                 zip(clipped_gradients, trainable_vars),
@@ -187,15 +188,16 @@ class Seq2SeqModel(object):
         input_feed[self.seq_len_target[task].name] = seq_len_target[task]
 
 
+        output_feed = []
         if params.isTraining:
             # Regular training
             output_feed = [self.updates,  # Update Op that does SGD.
-                           self.gradient_norms,  # Gradient norm.
+                           self.gradient_norm,  # Gradient norm.
                            self.losses[task]]  # Loss for this batch.
         else:
             # Testing for 0-1 loss
             output_feed.append(self.losses[task])  # Loss for this batch.
-            #output_feed.append(self.total_chars)
+            output_feed.append(self.outputs[task])
 
         outputs = sess.run(output_feed, input_feed)
         if params.isTraining:

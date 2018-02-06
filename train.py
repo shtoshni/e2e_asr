@@ -11,7 +11,6 @@ import time
 
 import numpy as np
 from six.moves import xrange
-import tensorflow as tf
 import cPickle as pickle
 import argparse
 import operator
@@ -22,6 +21,16 @@ import glob
 import data_utils
 import seq2seq_model
 import subprocess
+
+import tensorflow as tf
+from tensorflow.python.ops import variable_scope
+
+from seq2seq_model import Seq2SeqModel
+from encoder import Encoder
+from attn_decoder import AttnDecoder
+
+#import tensorflow.contrib.eager as tfe
+#tfe.enable_eager_execution()
 
 
 _buckets = [(210, (60, 50)), (346, (120, 110)), (548, (180, 140)), (850, (200, 150)), (1500, (380, 250))]
@@ -35,7 +44,7 @@ FLAGS = object()
 
 def parse_tasks(task_string):
     tasks = ["char"]
-    if "p" in task_list:
+    if "p" in tasks:
         tasks.append("phone")
     return tasks
 
@@ -43,16 +52,14 @@ def parse_tasks(task_string):
 def parse_options():
     parser = argparse.ArgumentParser()
 
+    parser.add_argument("-bsize", "--batch_size", default=64, type=int, help="Mini-batch Size")
     parser.add_argument("-hsize", "--hidden_size", default=256, type=int, help="Hidden layer size")
     parser.add_argument("-hsize_decoder", "--hidden_size_decoder", default=256, type=int, help="Hidden layer size")
-    parser.add_argument("-num_layers_phone", "--num_layers_phone", default=1, type=int, help="Number of layers to decode side")
-    parser.add_argument("-num_layers_char", "--num_layers_char", default=4, type=int, help="Number of layers to decode side")
-    parser.add_argument("-num_layers_phone_decoder", "--num_layers_phone_decoder", default=1, type=int, help="Number of layers to decode side")
-    parser.add_argument("-num_layers_char_decoder", "--num_layers_char_decoder", default=1, type=int, help="Number of layers to decode side")
-    parser.add_argument("-max_gnorm", "--max_gradient_norm", default=5.0, type=float, help="Maximum allowed norm of gradients")
+    parser.add_argument("-nlp", "--num_layers_phone", default=1, type=int, help="Number of layers to decode side")
+    parser.add_argument("-nlc", "--num_layers_char", default=2, type=int, help="Number of layers to decode side")
 
-    parser.add_argument("-tv_file_phone", "--target_vocab_file_phone", default="phone.txt", type=str, help="Vocab file for phone target")
-    parser.add_argument("-tv_file_char", "--target_vocab_file_char", default="char.txt", type=str, help="Vocab file for character target")
+    parser.add_argument("-tvp", "--target_vocab_file_phone", default="phone.txt", type=str, help="Vocab file for phone target")
+    parser.add_argument("-tvc", "--target_vocab_file_char", default="char.txt", type=str, help="Vocab file for character target")
 
     parser.add_argument("-vocab_dir", "--vocab_dir", default="/share/data/speech/shtoshni/research/asr_multi/data/vocab", type=str, help="Vocab directory")
     #parser.add_argument("-data_dir", "--data_dir", default="/share/data/speech/shtoshni/research/asr_multi/data/ctc_data", type=str, help="Data directory")
@@ -71,7 +78,6 @@ def parse_options():
     parser.add_argument("-sch_samp", "--sch_samp", default=True, action="store_true", help="Do pyramid at feature level as well?")
 
     parser.add_argument("-avg", "--avg", default=False, action="store_true", help="Average the loss")
-    parser.add_argument("-prefix", "--prefix", default="", type=str, help="Determine which dev file to use")
     parser.add_argument("-num_files", "--num_files", default=0, type=int, help="Num files")
     parser.add_argument("-max_epochs", "--max_epochs", default=500, type=int, help="Max epochs")
     parser.add_argument("-eval", "--eval_dev", default=False, action="store_true", help="Get dev set results using the last saved model")
@@ -82,15 +88,11 @@ def parse_options():
     arg_dict = vars(args)
 
     arg_dict['tasks'] = parse_tasks(arg_dict['tasks'])
-    arg_dict['steps_per_checkpoint'] = 500
+    arg_dict['steps_per_checkpoint'] = 100
 
     skip_string = ""
     if arg_dict['skip_step'] != 1:
         skip_string = "skip_" + str(arg_dict['skip_step']) + "_"
-
-    base_pyramid_string = ""
-    if arg_dict['base_pyramid'] != False:
-        base_pyramid_string = "bp_"
 
     samp_string = ""
     if arg_dict['sch_samp'] != False:
@@ -101,19 +103,12 @@ def parse_options():
         num_layer_string += 'nl' + task + '_' + str(arg_dict['num_layers_' + task]) + '_'
 
 
-    train_dir = (
-                'hsize_' + str(arg_dict['hidden_size']) + '_' +
-                'hsize_dec_' + str(arg_dict['hidden_size_decoder']) + '_' +
-
-                skip_string +
-                base_pyramid_string +
+    train_dir = (skip_string +
                 samp_string +
-
                 num_layer_string +
-
                 'out_prob_' + str(arg_dict['output_keep_prob']) + '_' +
-                'run_id_' + str(arg_dict['run_id']) + '_' +
-                ('avg_' if arg_dict['avg'] else '')
+                'run_id_' + str(arg_dict['run_id']) +
+                ('_avg_' if arg_dict['avg'] else '')
     )
 
     arg_dict['train_dir'] = os.path.join(arg_dict['train_base_dir'], train_dir)
@@ -123,12 +118,8 @@ def parse_options():
     for task in arg_dict['tasks']:
         arg_dict['num_layers'][task] = arg_dict['num_layers_' + task]
 
-    arg_dict['num_layers_decoder'] = {}
-    for task in arg_dict['task_to_id']:
-        arg_dict['num_layers_decoder'][task] = arg_dict['num_layers_' + task + '_decoder']
-
     arg_dict['target_vocab_file'] = {}
-    for task in arg_dict['task_to_id']:
+    for task in arg_dict['tasks']:
         arg_dict['target_vocab_file'][task] = arg_dict['target_vocab_file_' + task]
 
     arg_dict['output_vocab_size'] = {}
@@ -156,12 +147,13 @@ def parse_options():
                 sys.stdout.flush()
                 g.write(arg + "\t" + str(arg_val) + "\n")
 
-    options = bunchify(arg_dict)
-    return options
+    global FLAGS
+    FLAGS = bunchify(arg_dict)
+
 
 def load_dev_data(test=False):
     if not test:
-        dev_data_path = os.path.join(FLAGS.data_dir, 'dev' + FLAGS.prefix + '.pickle')
+        dev_data_path = os.path.join(FLAGS.data_dir, 'dev_short.pickle')
     else:
         dev_data_path = os.path.join(FLAGS.data_dir, 'eval.pickle')
     dev_set = pickle.load(open(dev_data_path))
@@ -171,7 +163,6 @@ def load_dev_data(test=False):
 
 
 def get_train_data():
-    #train_data_path = os.path.join(FLAGS.data_dir, "train" + "0")#".?")
     all_files = glob.glob(FLAGS.data_dir + "/train*")
     train_files = []
     for file_name in all_files:
@@ -194,16 +185,46 @@ def get_train_data():
     return train_files, number_of_batches
 
 
-def get_seq2seq_params(isTraining, tasks):
-    seq2seq_params = seq2seq_model.Seq2SeqModel.class_params()
+def create_seq2seq_model(isTraining, num_layers, queue=None):
+    seq2seq_params = Seq2SeqModel.class_params()
     seq2seq_params.isTraining = isTraining
-    seq2seq_params.tasks = tasks
+    seq2seq_params.num_layers = num_layers
+    seq2seq_params.tasks = list(num_layers.keys())
 
-    return seq2seq_params
+    encoder = create_encoder(isTraining)
+    decoder = {}
+    for task in num_layers:
+        # Create separate decoders for separate tasks
+        with variable_scope.variable_scope(task):
+            decoder[task] = create_decoder(isTraining)
 
-def create_model(session, forward_only, model_path=None, task_to_id=None, queue=None, actual_eval=False):
+    seq2seq_model = Seq2SeqModel(encoder, decoder, params=seq2seq_params, queue=queue)
+    return seq2seq_model
+
+
+def create_encoder(isTraining):
+    if isTraining:
+        encoder = Encoder()
+    else:
+        encoder_params = Encoder.class_params()
+        encoder_params.isTraining = False
+        encoder = Encoder(encoder_params)
+    return encoder
+
+
+def create_decoder(isTraining):
+    if isTraining:
+        decoder = AttnDecoder()
+    else:
+        decoder_params = AttnDecoder.class_params()
+        decoder_params.isTraining = False
+        decoder = AttnDecoder(decoder_params)
+    return decoder
+
+
+def create_model(session, isTraining, num_layers, model_path=None, queue=None, actual_eval=False):
     """Create model and initialize or load parameters in session."""
-    model = get_model_graph(session, forward_only, task_to_id=task_to_id, queue=queue)
+    model = create_seq2seq_model(isTraining, num_layers, queue=queue)
     ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir)
     ckpt_best = tf.train.get_checkpoint_state(FLAGS.best_model_dir)
     if ckpt:
@@ -232,9 +253,9 @@ def create_model(session, forward_only, model_path=None, task_to_id=None, queue=
         steps_done = 0
     return model, steps_done
 
+
 def train():
     """Train a sequence to sequence parser."""
-
     char_vocab_path = os.path.join(FLAGS.vocab_dir, FLAGS.target_vocab_file['char'])
     char_vocab, rev_char_vocab = data_utils.initialize_vocabulary(char_vocab_path)
     with tf.Session(config=tf.ConfigProto(intra_op_parallelism_threads=NUM_THREADS)) as sess:
@@ -247,9 +268,10 @@ def train():
         print("Creating %d layers of %d units." % (max(FLAGS.num_layers.values()), FLAGS.hidden_size))
         sys.stdout.flush()
         with tf.variable_scope("model", reuse=None):
-            model, steps_done = create_model(sess, forward_only=False, task_to_id=FLAGS.task_to_id, queue=bucket_queue)
+            model, steps_done = create_model(sess, True, num_layers=FLAGS.num_layers, queue=bucket_queue)
         with tf.variable_scope("model", reuse=True):
-            model_dev = get_model_graph(sess, forward_only=True, task_to_id=eval_task_to_id)
+            print ("Creating dev model")
+            model_dev  = create_seq2seq_model(isTraining=False, num_layers={'char': FLAGS.num_layers['char']})
 
 
         # Prepare training data
@@ -261,7 +283,8 @@ def train():
 
         # Test dev results
         dev_set = load_dev_data()
-        asr_err_best = 1
+        #asr_err_best = 1
+        asr_err_best = asr_decode(model_dev, sess, dev_set)
         if steps_done > 0:
             ## Some training has been done
             score_file = os.path.join(FLAGS.train_dir, "best.txt")
@@ -364,8 +387,8 @@ def train():
                 coord.join(threads)
                 break
 
-    coord.request_stop()
-    coord.join(threads)
+        coord.request_stop()
+        coord.join(threads)
 
 
 def get_summary(value, tag):
@@ -385,8 +408,8 @@ def get_dev_cross_entropy(sess, model_dev, dev_set):
                     model_dev.get_batch({bucket_id: all_examples}, bucket_id, task='char', do_eval=False)
 
 
-            frac_errs, normalized_loss, minibatch_chars = model_dev.step(sess, encoder_inputs, decoder_inputs,\
-                         seq_len, seq_len_target, False, feed_forward=False)
+            frac_errs, normalized_loss, minibatch_chars = model_dev.step(
+                sess, encoder_inputs, seq_len, decoder_inputs, seq_len_target)
 
             total_chars += minibatch_chars
             clsfcn_loss += frac_errs * minibatch_chars
@@ -423,7 +446,7 @@ def asr_decode(model_dev, sess, dev_set):
         for batch_offset in offsets:
             all_examples = dev_set[bucket_id][batch_offset:batch_offset+batch_size]
 
-            model_dev.batch_size = len(all_examples)
+            model_dev.params.batch_size = len(all_examples)
             log_mels = [x[0] for x in all_examples]
             gold_ids = [x[1] for x in all_examples]
             sent_id_vals = [x[2] for x in all_examples]
@@ -433,11 +456,11 @@ def asr_decode(model_dev, sess, dev_set):
                 model_dev.get_batch({bucket_id: zip(log_mels, gold_ids)}, bucket_id, task='char', do_eval=True)
 
 
-            _, _, output_logits = model_dev.step(sess, encoder_inputs, decoder_inputs,\
-                         seq_len, seq_len_target, False)
+            _, output_logits = model_dev.step(sess, encoder_inputs, seq_len,
+                                              decoder_inputs, seq_len_target)
 
             outputs = np.argmax(output_logits, axis=1)
-            outputs = np.reshape(outputs, (max(seq_len_target['char']), model_dev.batch_size)) ##T*B
+            outputs = np.reshape(outputs, (max(seq_len_target['char']), model_dev.params.batch_size)) ##T*B
 
             to_decode = np.array(outputs).T ## T * B and the transpose makes it B*T
 
@@ -492,7 +515,7 @@ def decode(test=False):
 
 
 if __name__ == "__main__":
-    FLAGS = parse_options()
+    parse_options()
     if FLAGS.eval_dev:
         decode()
     elif FLAGS.test:

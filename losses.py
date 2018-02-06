@@ -18,7 +18,7 @@ class LossUtils(object):
         """
         with ops.name_scope("sequence_loss", [logits, targets]):
             flat_targets = tf.reshape(targets, [-1])
-            cost = nn_ops.sparse_softmax_cross_entropy_with_logits(
+            cost = tf.nn.sparse_softmax_cross_entropy_with_logits(
                 logits=logits, labels=flat_targets)
 
             # Mask this cost since the output sequence is padded
