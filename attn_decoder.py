@@ -108,6 +108,7 @@ class AttnDecoder(Decoder):
 
 
                     if not params.isTraining:
+                        print ("Eval model")
                         simple_input = loop_function(output)
                     else:
                         if loop_function is not None:
@@ -137,7 +138,7 @@ class AttnDecoder(Decoder):
         # outputs is a TensorArray with T=max(sequence_length) entries
         # of shape Bx|V|
         outputs, state, _ = rnn.raw_rnn(self.cell, raw_loop_function)
-        # Concatenate the output across timesteps to get a tensor of TxBx|v|
+        # Concatenate the output across timesteps to get a tensor of TxBx|V|
         # shape
         outputs = outputs.concat()
         return outputs

@@ -1,3 +1,5 @@
+# coding: utf-8
+
 from __future__ import absolute_import
 from __future__ import division
 
@@ -21,6 +23,7 @@ import glob
 import data_utils
 import seq2seq_model
 import subprocess
+import re
 
 import tensorflow as tf
 from tensorflow.python.ops import variable_scope
@@ -33,7 +36,8 @@ from attn_decoder import AttnDecoder
 #tfe.enable_eager_execution()
 
 
-_buckets = [(210, (60, 50)), (346, (120, 110)), (548, (180, 140)), (850, (200, 150)), (1500, (380, 250))]
+#_buckets = [(210, (60, 50)), (346, (120, 110)), (548, (180, 140)), (850, (200, 150)), (1500, (380, 250))]
+_buckets = [(210, (23, 50)), (346, (54, 110)), (548, (58, 140)), (850, (69, 150)), (1500, (119, 250))]
 bucket_size = [input_size for input_size, _ in _buckets]
 task_to_freq = {'phone':1.0, 'char':1.0}
 eval_task_to_id = {'char':0}
@@ -56,18 +60,19 @@ def parse_options():
     parser.add_argument("-hsize", "--hidden_size", default=256, type=int, help="Hidden layer size")
     parser.add_argument("-hsize_decoder", "--hidden_size_decoder", default=256, type=int, help="Hidden layer size")
     parser.add_argument("-nlp", "--num_layers_phone", default=1, type=int, help="Number of layers to decode side")
-    parser.add_argument("-nlc", "--num_layers_char", default=2, type=int, help="Number of layers to decode side")
+    parser.add_argument("-nlc", "--num_layers_char", default=4, type=int, help="Number of layers to decode side")
 
-    parser.add_argument("-tvp", "--target_vocab_file_phone", default="phone.txt", type=str, help="Vocab file for phone target")
-    parser.add_argument("-tvc", "--target_vocab_file_char", default="char.txt", type=str, help="Vocab file for character target")
+    parser.add_argument("-tvp", "--target_vocab_file_phone", default="phone.vocab", type=str, help="Vocab file for phone target")
+    parser.add_argument("-tvc", "--target_vocab_file_char", default="char.vocab", type=str, help="Vocab file for character target")
 
-    parser.add_argument("-vocab_dir", "--vocab_dir", default="/share/data/speech/shtoshni/research/asr_multi/data/vocab", type=str, help="Vocab directory")
+    parser.add_argument("-vocab_dir", "--vocab_dir", default="/scratch2/asr_multi/data/lang/vocab", type=str, help="Vocab directory")
     #parser.add_argument("-data_dir", "--data_dir", default="/share/data/speech/shtoshni/research/asr_multi/data/ctc_data", type=str, help="Data directory")
     #parser.add_argument("-tb_dir", "--train_base_dir", default="/share/data/speech/shtoshni/research/asr_multi/models", type=str, help="Training directory")
     #parser.add_argument("-bm_dir", "--best_model_dir", default="/share/data/speech/shtoshni/research/asr_multi/models/best_models", type=str, help="Training directory")
-    parser.add_argument("-data_dir", "--data_dir", default="/scratch/asr_multi/data/ctc_data", type=str, help="Data directory")
-    parser.add_argument("-tb_dir", "--train_base_dir", default="/scratch/asr_multi/models", type=str, help="Training directory")
-    parser.add_argument("-bm_dir", "--best_model_dir", default="/scratch/asr_multi/models/best_models", type=str, help="Training directory")
+    #parser.add_argument("-data_dir", "--data_dir", default="/scratch/asr_multi/data/ctc_data", type=str, help="Data directory")
+    parser.add_argument("-data_dir", "--data_dir", default="/scratch2/asr_multi/data/tfrecords", type=str, help="Data directory")
+    parser.add_argument("-tb_dir", "--train_base_dir", default="/scratch2/asr_multi/models", type=str, help="Training directory")
+    parser.add_argument("-bm_dir", "--best_model_dir", default="/scratch2/asr_multi/models/best_models", type=str, help="Training directory")
     parser.add_argument("-tasks", "--tasks", default="", type=str, help="Auxiliary task choices")
 
     parser.add_argument("-skip_step", "--skip_step", default=1, type=int, help="Frame skipping factor as we go up the stacked layers")
@@ -88,7 +93,7 @@ def parse_options():
     arg_dict = vars(args)
 
     arg_dict['tasks'] = parse_tasks(arg_dict['tasks'])
-    arg_dict['steps_per_checkpoint'] = 100
+    arg_dict['steps_per_checkpoint'] = 500
 
     skip_string = ""
     if arg_dict['skip_step'] != 1:
@@ -104,11 +109,11 @@ def parse_options():
 
 
     train_dir = (skip_string +
-                samp_string +
-                num_layer_string +
-                'out_prob_' + str(arg_dict['output_keep_prob']) + '_' +
-                'run_id_' + str(arg_dict['run_id']) +
-                ('_avg_' if arg_dict['avg'] else '')
+                 samp_string +
+                 num_layer_string +
+                 'out_prob_' + str(arg_dict['output_keep_prob']) + '_' +
+                 'run_id_' + str(arg_dict['run_id']) +
+                 ('_avg_' if arg_dict['avg'] else '')
     )
 
     arg_dict['train_dir'] = os.path.join(arg_dict['train_base_dir'], train_dir)
@@ -137,7 +142,7 @@ def parse_options():
         if not os.path.exists(arg_dict['best_model_dir']):
             os.makedirs(arg_dict['best_model_dir'])
 
-        ## Sort the arg_dict to create a parameter file
+        # Sort the arg_dict to create a parameter file
         parameter_file = 'parameters.txt'
         sorted_args = sorted(arg_dict.items(), key=operator.itemgetter(0))
 
@@ -151,41 +156,20 @@ def parse_options():
     FLAGS = bunchify(arg_dict)
 
 
-def load_dev_data(test=False):
-    if not test:
-        dev_data_path = os.path.join(FLAGS.data_dir, 'dev_short.pickle')
-    else:
-        dev_data_path = os.path.join(FLAGS.data_dir, 'eval.pickle')
-    dev_set = pickle.load(open(dev_data_path))
-    num_dev_samples = sum([len(bucket_instances) for bucket_instances in dev_set])
-    print ("Number of dev samples: %d" %num_dev_samples)
-    return dev_set
-
-
-def get_train_data():
-    all_files = glob.glob(FLAGS.data_dir + "/train*")
-    train_files = []
+def get_split_files(split="train"):
+    all_files = glob.glob(FLAGS.data_dir + "/" + split + "*")
+    #all_files = glob.glob(FLAGS.data_dir + "/train*1.1.*")
+    split_files = []
     for file_name in all_files:
-        #batch_idx = int(os.path.basename(file_name).split(".")[1])
-        train_files.append(file_name)
-    train_files.sort()
+        split_files.append(file_name)
+    split_files.sort()
     if FLAGS.num_files > 0:
-        train_files = train_files[:FLAGS.num_files]
-
-    #print (train_files)
-    print (len(train_files))
-    number_of_instances = 0
-    for train_file in train_files:
-        print(train_file)
-        sys.stdout.flush()
-        number_of_instances += sum([1 for _ in tf.python_io.tf_record_iterator(train_file)])
-        ## Using ceil below since we allow for smaller final batch
-
-    number_of_batches = int(np.ceil(number_of_instances/float(FLAGS.batch_size)))
-    return train_files, number_of_batches
+        split_files = split_files[:FLAGS.num_files]
+    print ("Number of %s files: %d" %(split, len(split_files)))
+    return split_files
 
 
-def create_seq2seq_model(isTraining, num_layers, queue=None):
+def create_seq2seq_model(isTraining, num_layers, data_iter):
     seq2seq_params = Seq2SeqModel.class_params()
     seq2seq_params.isTraining = isTraining
     seq2seq_params.num_layers = num_layers
@@ -198,7 +182,7 @@ def create_seq2seq_model(isTraining, num_layers, queue=None):
         with variable_scope.variable_scope(task):
             decoder[task] = create_decoder(isTraining)
 
-    seq2seq_model = Seq2SeqModel(encoder, decoder, params=seq2seq_params, queue=queue)
+    seq2seq_model = Seq2SeqModel(encoder, decoder, params=seq2seq_params, data_iter=data_iter)
     return seq2seq_model
 
 
@@ -222,9 +206,9 @@ def create_decoder(isTraining):
     return decoder
 
 
-def create_model(session, isTraining, num_layers, model_path=None, queue=None, actual_eval=False):
+def create_model(session, isTraining, num_layers, data_iter, model_path=None, actual_eval=False):
     """Create model and initialize or load parameters in session."""
-    model = create_seq2seq_model(isTraining, num_layers, queue=queue)
+    model = create_seq2seq_model(isTraining, num_layers, data_iter)
     ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir)
     ckpt_best = tf.train.get_checkpoint_state(FLAGS.best_model_dir)
     if ckpt:
@@ -256,39 +240,45 @@ def create_model(session, isTraining, num_layers, model_path=None, queue=None, a
 
 def train():
     """Train a sequence to sequence parser."""
-    char_vocab_path = os.path.join(FLAGS.vocab_dir, FLAGS.target_vocab_file['char'])
-    char_vocab, rev_char_vocab = data_utils.initialize_vocabulary(char_vocab_path)
     with tf.Session(config=tf.ConfigProto(intra_op_parallelism_threads=NUM_THREADS)) as sess:
         print("Loading train data from %s" % FLAGS.data_dir)
-        train_files, num_batch = get_train_data()
-        print ("Number of minibatches: %d" %(num_batch))
-        bucket_queue = tf.train.string_input_producer(train_files, shuffle=True)
-
-        # Create model.
-        print("Creating %d layers of %d units." % (max(FLAGS.num_layers.values()), FLAGS.hidden_size))
         sys.stdout.flush()
+
+
+        train_set = tf.data.TFRecordDataset(get_split_files(split="train"))
+        train_set = train_set.map(Seq2SeqModel.get_instance)
+        train_set = train_set.shuffle(buffer_size=10000)
+        train_set = train_set.padded_batch(FLAGS.batch_size,
+                                           padded_shapes={"logmel": [None, FLAGS.feat_length], 'char': [None],
+                                                          "phone": [None], "logmel_len":[],
+                                                          "char_len":[], "phone_len":[]})
+        train_iter = train_set.make_initializable_iterator()
+
+        dev_set = tf.data.TFRecordDataset(get_split_files(split="dev"))
+        dev_set = dev_set.map(Seq2SeqModel.get_instance)
+        dev_set = dev_set.padded_batch(FLAGS.batch_size,
+                                       padded_shapes={"logmel": [None, FLAGS.feat_length], 'char': [None],
+                                                      "phone": [None], "logmel_len":[],
+                                                      "char_len": [], "phone_len": []})
+        dev_iter = dev_set.make_initializable_iterator()
+
         with tf.variable_scope("model", reuse=None):
-            model, steps_done = create_model(sess, True, num_layers=FLAGS.num_layers, queue=bucket_queue)
+            model, steps_done = create_model(sess, True, FLAGS.num_layers, train_iter)
         with tf.variable_scope("model", reuse=True):
             print ("Creating dev model")
-            model_dev  = create_seq2seq_model(isTraining=False, num_layers={'char': FLAGS.num_layers['char']})
+            model_dev = create_seq2seq_model(False, {'char': FLAGS.num_layers['char']}, dev_iter)
 
 
         # Prepare training data
         epoch = model.epoch.eval()
         epochs_left = FLAGS.max_epochs - epoch
 
-        coord = tf.train.Coordinator()
-        threads = tf.train.start_queue_runners(sess=sess, coord=coord)
-
-        # Test dev results
-        dev_set = load_dev_data()
-        #asr_err_best = 1
-        asr_err_best = asr_decode(model_dev, sess, dev_set)
+        train_writer = tf.summary.FileWriter(FLAGS.train_dir + '/train', tf.get_default_graph())
+        asr_err_best = 1.0
         if steps_done > 0:
-            ## Some training has been done
+            # Some training has been done
             score_file = os.path.join(FLAGS.train_dir, "best.txt")
-            ## Check existence of such a file
+            # Check existence of such a file
             if os.path.isfile(score_file):
                 try:
                     asr_err_best = float(open(score_file).readline().strip("\n"))
@@ -302,129 +292,113 @@ def train():
         current_step = 0
         previous_losses = []
 
-        total_minibatches = num_batch
-        train_writer = tf.summary.FileWriter(FLAGS.train_dir + '/train', tf.get_default_graph())
 
         while epoch <= FLAGS.max_epochs:
-            try:
-                while not coord.should_stop():
-                    print("Epochs done: %d" %epoch)
-                    sys.stdout.flush()
+            print("Epochs done: %d" %epoch)
+            sys.stdout.flush()
+            sess.run(train_iter.initializer)
+            while True:
+                try:
+                    start_time = time.time()
+                    output_feed = [model.updates,  model.losses]
 
-                    for i in xrange(total_minibatches):
-                        task = "char"
-                        start_time = time.time()
-                        output_feed = [model.updates,  # Update Op that does SGD.
-                                       model.losses]  # Loss for this batch.
+                    if (current_step % FLAGS.steps_per_checkpoint) == 0:
+                        output_feed.append(model.merged)
+                        _, step_loss, train_summary = sess.run(output_feed)
+                        train_writer.add_summary(train_summary, current_step)
+                    else:
+                        _, step_loss = sess.run(output_feed)
 
-                        current_step += 1
-                        if (current_step % FLAGS.steps_per_checkpoint) == 0:
-                            output_feed.append(model.merged)
-                            _, step_loss, train_summary = sess.run(output_feed)
-                            train_writer.add_summary(train_summary, current_step)
-                        else:
-                            _, step_loss = sess.run(output_feed)
-                        step_loss = step_loss[task]
+                    step_loss = step_loss["char"]
 
-                        step_time += (time.time() - start_time) / FLAGS.steps_per_checkpoint
-                        loss += step_loss / FLAGS.steps_per_checkpoint
+                    current_step += 1
+                    step_time += (time.time() - start_time) / FLAGS.steps_per_checkpoint
+                    loss += step_loss / FLAGS.steps_per_checkpoint
 
-                        if current_step % FLAGS.steps_per_checkpoint == 0:
-                            # Print statistics for the previous epoch.
-                            perplexity = math.exp(loss) if loss < 300 else float('inf')
+                    if current_step % FLAGS.steps_per_checkpoint == 0:
+                        # Print statistics for the previous epoch.
+                        perplexity = math.exp(loss) if loss < 300 else float('inf')
 
-                            print ("global step %d learning rate %.4f step-time %.2f perplexity "
-                                   "%.2f" % (model.global_step.eval(), model.learning_rate.eval(),
-                                             step_time, perplexity))
+                        print ("global step %d learning rate %.4f step-time %.2f perplexity "
+                               "%.2f" % (model.global_step.eval(), model.learning_rate.eval(),
+                                         step_time, perplexity))
 
-                            asr_err_cur = asr_decode(model_dev, sess, dev_set)
-                            print ("ASR error: %.4f" %(asr_err_cur))
+                        asr_err_cur = asr_decode(sess, model_dev, dev_iter)
+                        print ("ASR error: %.4f" %(asr_err_cur))
 
-                            err_summary = get_summary(asr_err_cur, "ASR Error")
-                            train_writer.add_summary(err_summary, current_step)
+                        err_summary = get_summary(asr_err_cur, "ASR Error")
+                        train_writer.add_summary(err_summary, current_step)
 
-                            if (len(previous_losses) > 0 and loss > previous_losses[-1]):
-                                if model.learning_rate.eval() > 1e-4:
-                                    sess.run(model.learning_rate_decay_op)
-                                    print ("Learning rate decreased !!")
-                            previous_losses.append(loss)
+                        if (len(previous_losses) > 0 and loss > previous_losses[-1]):
+                            if model.learning_rate.eval() > 1e-4:
+                                sess.run(model.learning_rate_decay_op)
+                                print ("Learning rate decreased !!")
+                        previous_losses.append(loss)
 
-                            ## Early stopping - ONLY UPDATING MODEL IF BETTER PERFORMANCE ON DEV
-                            if asr_err_best > asr_err_cur:
-                                asr_err_best = asr_err_cur
-                                # Save model
-                                print("Best ASR Error rate: %.4f" % asr_err_best)
-                                print("Saving the best model !!")
+                        # Early stopping - ONLY UPDATING MODEL IF BETTER PERFORMANCE ON DEV
+                        if asr_err_best > asr_err_cur:
+                            asr_err_best = asr_err_cur
+                            # Save model
+                            print("Best ASR Error rate: %.4f" % asr_err_best)
+                            print("Saving the best model !!")
 
-                                # Save the best score
-                                f = open(os.path.join(FLAGS.train_dir, "best.txt"), "w")
-                                f.write(str(asr_err_best))
-                                f.close()
+                            # Save the best score
+                            f = open(os.path.join(FLAGS.train_dir, "best.txt"), "w")
+                            f.write(str(asr_err_best))
+                            f.close()
 
-                                ## Save the model in best model directory
-                                checkpoint_path = os.path.join(FLAGS.best_model_dir, "asr.ckpt")
-                                model.best_saver.save(sess, checkpoint_path, global_step=model.global_step, write_meta_graph=False)
-                                ## Also save the model for plotting
-                                checkpoint_path = os.path.join(FLAGS.train_dir, "asr.ckpt")
-                                model.saver.save(sess, checkpoint_path, global_step=model.global_step, write_meta_graph=False)
-                            else:
-                                ## Save the model in regular directory
-                                print("Saving for the sake of record - huh")
-                                checkpoint_path = os.path.join(FLAGS.train_dir, "asr.ckpt")
-                                model.saver.save(sess, checkpoint_path, global_step=model.global_step, write_meta_graph=False)
+                            ## Save the model in best model directory
+                            checkpoint_path = os.path.join(FLAGS.best_model_dir, "asr.ckpt")
+                            model.best_saver.save(sess, checkpoint_path, global_step=model.global_step, write_meta_graph=False)
 
+                        # Also save the model for plotting
+                        checkpoint_path = os.path.join(FLAGS.train_dir, "asr.ckpt")
+                        model.saver.save(sess, checkpoint_path, global_step=model.global_step, write_meta_graph=False)
 
-                            print ("\n")
-                            sys.stdout.flush()
-                            step_time, loss = 0.0, 0.0
+                        print ("\n")
+                        sys.stdout.flush()
+                        step_time, loss = 0.0, 0.0
 
-                    # Update epoch counter
+                except tf.errors.OutOfRangeError:
                     sess.run(model.epoch_incr)
                     epoch += 1
-
-            except Exception as e:
-                coord.request_stop(e)
-                coord.join(threads)
-                break
-
-        coord.request_stop()
-        coord.join(threads)
+                    break
 
 
 def get_summary(value, tag):
     return tf.Summary(value=[tf.Summary.Value(tag=tag, simple_value=value)])
 
 
-def get_dev_cross_entropy(sess, model_dev, dev_set):
-    total_chars = 0.0
-    log_loss = 0
-    clsfcn_loss = 0 ## classification loss
-    for bucket_id in xrange(len(dev_set)):
-        bucket_size = len(dev_set[bucket_id])
-        offsets = np.arange(0, bucket_size, FLAGS.batch_size)
-        for batch_offset in offsets:
-            all_examples = dev_set[bucket_id][batch_offset:batch_offset+FLAGS.batch_size]
-            encoder_inputs, decoder_inputs,  seq_len, seq_len_target = \
-                    model_dev.get_batch({bucket_id: all_examples}, bucket_id, task='char', do_eval=False)
+def reverse_swbd_normalizer():
+    swbd_dict = {"!": "[laughter]",
+                 "@": "[noise]",
+                 "#": "[vocalized-noise]"}
+
+    def normalizer(text):
+        # Create a regex for match
+        regex = re.compile("(%s)" % "|".join(map(re.escape, swbd_dict.keys())))
+        # For each match, look-up corresponding value in dictionary
+        return regex.sub(lambda match: swbd_dict[match.string[match.start() : match.end()]], text)
+
+    return normalizer
 
 
-            frac_errs, normalized_loss, minibatch_chars = model_dev.step(
-                sess, encoder_inputs, seq_len, decoder_inputs, seq_len_target)
-
-            total_chars += minibatch_chars
-            clsfcn_loss += frac_errs * minibatch_chars
-            log_loss += normalized_loss * minibatch_chars
-
-    avg_log_loss = log_loss/total_chars
-    avg_clsfcn_loss = clsfcn_loss/total_chars
-
-    return avg_log_loss, avg_clsfcn_loss
+def wp_array_to_sent(wp_array, reverse_char_vocab, normalizer):
+    wp_id_list = list(wp_array)
+    if data_utils.EOS_ID in wp_id_list:
+        wp_id_list = wp_id_list[:wp_id_list.index(data_utils.EOS_ID)]
+    wp_list = map(lambda piece_id:
+                  tf.compat.as_str(reverse_char_vocab[piece_id]), wp_id_list)
+    sent = (''.join(wp_list).replace('▁', ' ')).strip()
+    return normalizer(sent)
 
 
-def asr_decode(model_dev, sess, dev_set):
+def asr_decode(sess, model_dev, dev_iter):
     # Load vocabularies.
-    char_vocab_path = os.path.join(FLAGS.vocab_dir, FLAGS.target_vocab_file['char'])
+    char_vocab_path = "/scratch2/asr_multi/data/lang/vocab/char.vocab"
     char_vocab, rev_char_vocab = data_utils.initialize_vocabulary(char_vocab_path)
+
+    rev_normalizer = reverse_swbd_normalizer()
 
     gold_asr_file = os.path.join(FLAGS.train_dir, 'gold_asr.txt')
     decoded_asr_file = os.path.join(FLAGS.train_dir, 'decoded_asr.txt')
@@ -434,47 +408,29 @@ def asr_decode(model_dev, sess, dev_set):
     fout_raw_asr = open(raw_asr_file, 'w')
     fout_asr = open(decoded_asr_file, 'w')
 
-    num_dev_sents = 0
     total_errors = 0
     total_words = 0
-    ## Set numpy printing threshold
-    np.set_printoptions(threshold=np.inf)
-    batch_size=FLAGS.batch_size
-    for bucket_id in xrange(len(dev_set)):
-        bucket_size = len(dev_set[bucket_id])
-        offsets = np.arange(0, bucket_size, batch_size)
-        for batch_offset in offsets:
-            all_examples = dev_set[bucket_id][batch_offset:batch_offset+batch_size]
 
-            model_dev.params.batch_size = len(all_examples)
-            log_mels = [x[0] for x in all_examples]
-            gold_ids = [x[1] for x in all_examples]
-            sent_id_vals = [x[2] for x in all_examples]
-            dec_ids = [[]] * len(gold_ids)
+    # Initialize the dev iterator
+    sess.run(dev_iter.initializer)
+    while True:
+        try:
+            start_time = time.time()
+            output_feed = [model_dev.decoder_inputs["char"], model_dev.seq_len_target["char"],
+                           model_dev.outputs["char"]]
 
-            encoder_inputs, decoder_inputs,  seq_len, seq_len_target = \
-                model_dev.get_batch({bucket_id: zip(log_mels, gold_ids)}, bucket_id, task='char', do_eval=True)
-
-
-            _, output_logits = model_dev.step(sess, encoder_inputs, seq_len,
-                                              decoder_inputs, seq_len_target)
+            gold_ids, seq_len, output_logits = sess.run(output_feed)
+            gold_ids = np.array(gold_ids[1:, :]).T
+            batch_size = gold_ids.shape[0]
 
             outputs = np.argmax(output_logits, axis=1)
-            outputs = np.reshape(outputs, (max(seq_len_target['char']), model_dev.params.batch_size)) ##T*B
+            outputs = np.reshape(outputs, (-1, batch_size)) ##T*B
 
             to_decode = np.array(outputs).T ## T * B and the transpose makes it B*T
 
-            num_dev_sents += to_decode.shape[0]
             for sent_id in xrange(to_decode.shape[0]):
-                asr_out = list(to_decode[sent_id, :])
-                if data_utils.EOS_ID in asr_out:
-                    asr_out = asr_out[:asr_out.index(data_utils.EOS_ID)]
-
-                decoded_asr = ''
-                for output in asr_out:
-                    decoded_asr += tf.compat.as_str(rev_char_vocab[output])
-
-                gold_asr = ''.join([tf.compat.as_str(rev_char_vocab[output]) for output in gold_ids[sent_id]])
+                gold_asr = wp_array_to_sent(gold_ids[sent_id, :], rev_char_vocab, rev_normalizer)
+                decoded_asr = wp_array_to_sent(to_decode[sent_id, :], rev_char_vocab, rev_normalizer)
                 raw_asr_words, decoded_words = data_utils.get_relevant_words(decoded_asr)
                 _, gold_words = data_utils.get_relevant_words(gold_asr)
 
@@ -482,8 +438,11 @@ def asr_decode(model_dev, sess, dev_set):
                 total_words += len(gold_words)
 
                 fout_gold.write('{}\n'.format(' '.join(gold_words)))
-                fout_raw_asr.write(sent_id_vals[sent_id] + "\t" + '{}\n'.format(' '.join(raw_asr_words)))
-                fout_asr.write(sent_id_vals[sent_id] + "\t" + '{}\n'.format(' '.join(decoded_words)))
+                fout_raw_asr.write('{}\n'.format(' '.join(raw_asr_words)))
+                fout_asr.write('{}\n'.format(' '.join(decoded_words)))
+
+        except tf.errors.OutOfRangeError:
+            break
 
     # Write to file
     fout_gold.close()
@@ -500,19 +459,7 @@ def asr_decode(model_dev, sess, dev_set):
 def decode(test=False):
     """ Decode file sentence-by-sentence  """
     with tf.Session(config=tf.ConfigProto(intra_op_parallelism_threads=NUM_THREADS)) as sess:
-        # Create model and load parameters.
-        with tf.variable_scope("model"):
-            model_dev, steps_done = create_model(sess, forward_only=True, task_to_id=eval_task_to_id, actual_eval=True)
-
-        print ("Epochs done: %d" %model_dev.epoch.eval())
-        dev_set = load_dev_data(test=test)
-        print ("Dev set loaded !!")
-
-        start_time = time.time()
-        asr_decode(model_dev, sess, dev_set)
-        time_elapsed = time.time() - start_time
-        print("Decoding all dev time: ", time_elapsed)
-
+        pass
 
 if __name__ == "__main__":
     parse_options()

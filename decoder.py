@@ -36,7 +36,7 @@ class Decoder(object):
         params['hidden_size'] = 256
         params['num_layers'] = 1
         params['emb_size'] = 256
-        params['vocab_size'] = 48
+        params['vocab_size'] = 1000
         params['samp_prob'] = 0.1
         params['max_output'] = 400
 

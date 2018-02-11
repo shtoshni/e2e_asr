@@ -87,7 +87,6 @@ class Encoder(object):
         with variable_scope.variable_scope("RNNLayer%d" % (layer_depth),
                                            initializer=tf.random_uniform_initializer(-0.075, 0.075)):
             # Check if the encoder needs to be bidirectional or not.
-            print ("Layer:%d" %layer_depth)
             if params.bi_dir:
                 (encoder_output_fw, encoder_output_bw), _ = \
                     rnn.bidirectional_dynamic_rnn(
@@ -130,7 +129,7 @@ class Encoder(object):
                              tf.cast(tf.shape(div_input_tens)[1]/params.skip_step, tf.int32),
                              feat_size * params.skip_step])
         # Get the ceil division since we pad it with 0s
-        seq_len = tf.to_int32(tf.ceil(
+        seq_len = tf.to_int64(tf.ceil(
             tf.truediv(seq_len, tf.cast(params.skip_step, dtype=tf.int64))))
         return output_tens, seq_len
 
@@ -154,7 +153,6 @@ class Encoder(object):
             time_major_states = {}
             seq_len_inps = {}
 
-            print ("Feat length: %d" %encoder_input.get_shape()[2])
             max_depth = 0
             for task, num_layer in num_layers.items():
                 if task == "state":
@@ -165,11 +163,9 @@ class Encoder(object):
 
             resolution_fac = params.initial_res_fac  # Term to maintain time-resolution factor
             for i in xrange(max_depth):
-                print (i)
                 layer_depth = i+1
                 # Transpose the input into time major input
                 inp_transp = tf.transpose(encoder_input, [1, 0, 2])
-                print ("Feat length: %d" % inp_transp.get_shape()[2])
 
                 encoder_output = self._layer_encoder_input(inp_transp,
                                                            seq_len, layer_depth=layer_depth)
@@ -194,16 +190,3 @@ class Encoder(object):
                     encoder_input = encoder_output
 
             return attention_states, time_major_states, seq_len_inps
-
-#    def encode_cudnn(self, encoder_inp):
-#        """Use the Cudnn RNN encoder.
-#
-#        Args:
-#            encoder_inp: Input vectors that are time major - TxBxH
-#
-#        Returns:
-#            encoder_outputs: Since with Cudnn RNN it makes more sense to just
-#                run a monolithic multilayered RNN, we just return the output
-#                of last layer.
-#        """
-
