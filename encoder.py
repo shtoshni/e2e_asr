@@ -6,26 +6,10 @@ Date: February, 2018
 """
 
 from __future__ import absolute_import
-from __future__ import division
 from __future__ import print_function
 
-from six.moves import xrange
-from six.moves import zip
 from bunch import Bunch
-from tensorflow.python.framework import dtypes
-from tensorflow.python.framework import ops
-from tensorflow.python.ops import array_ops
-from tensorflow.python.ops import control_flow_ops
-from tensorflow.python.ops import embedding_ops
-from tensorflow.python.ops import math_ops
-from tensorflow.python.ops import nn_ops
-from tensorflow.python.ops import rnn
-import tensorflow.contrib.rnn as rnn_cell
-from tensorflow.python.ops import variable_scope
-from tensorflow.contrib.rnn.python.ops.core_rnn_cell import _Linear
-import tensorflow.contrib.cudnn_rnn as cudnn_rnn
 import tensorflow as tf
-
 
 class Encoder(object):
     """Encoder class that encodes input sequence."""
@@ -51,18 +35,14 @@ class Encoder(object):
             self.params = self.class_params()
         params = self.params
 
-        self.cell= rnn_cell.BasicLSTMCell(params.hidden_size)
-        if params.isTraining:
-            # During training a dropout wrapper is used
-            self.cell = rnn_cell.DropoutWrapper(
-                self.cell, output_keep_prob=params.out_prob)
-
     def get_cell(self):
+        """Get cell with the parameter configuration."""
         params = self.params
-        cell = rnn_cell.BasicLSTMCell(params.hidden_size)
+        #cell = tf.nn.rnn_cell.BasicLSTMCell(params.hidden_size)
+        cell = tf.nn.rnn_cell.GRUCell(params.hidden_size)
         if params.isTraining:
             # During training we use a dropout wrapper
-            cell = rnn_cell.DropoutWrapper(
+            cell = tf.nn.rnn_cell.DropoutWrapper(
                 cell, output_keep_prob=params.out_prob)
         return cell
 
@@ -84,12 +64,12 @@ class Encoder(object):
             final_state: Final hidden state of LSTM.
         """
         params = self.params
-        with variable_scope.variable_scope("RNNLayer%d" % (layer_depth),
-                                           initializer=tf.random_uniform_initializer(-0.075, 0.075)):
+        with tf.variable_scope("RNNLayer%d" % (layer_depth),
+                               initializer=tf.random_uniform_initializer(-0.075, 0.075)):
             # Check if the encoder needs to be bidirectional or not.
             if params.bi_dir:
                 (encoder_output_fw, encoder_output_bw), _ = \
-                    rnn.bidirectional_dynamic_rnn(
+                    tf.nn.bidirectional_dynamic_rnn(
                         self.get_cell(), self.get_cell(), encoder_inputs,
                         sequence_length=seq_len, dtype=tf.float32,
                         time_major=True)
@@ -97,9 +77,8 @@ class Encoder(object):
                 encoder_outputs = tf.concat([encoder_output_fw,
                                              encoder_output_bw], 2)
             else:
-                encoder_outputs, _ = rnn.dynamic_rnn(
+                encoder_outputs, _ = tf.nn.dynamic_rnn(
                     self.get_cell(),
-                    #self.cell,
                     encoder_inputs, sequence_length=seq_len,
                     dtype=tf.float32, time_major=True, scope=str(layer_depth))
 
@@ -147,8 +126,8 @@ class Encoder(object):
                 This tensor is used by attention-enabled decoders.
         """
         params = self.params
-        with variable_scope.variable_scope(
-                "encoder", initializer=tf.random_uniform_initializer(-0.1, 0.1)):
+        with tf.variable_scope("encoder",
+                               initializer=tf.random_uniform_initializer(-0.1, 0.1)):
             attention_states = {}
             time_major_states = {}
             seq_len_inps = {}
@@ -165,10 +144,8 @@ class Encoder(object):
             for i in xrange(max_depth):
                 layer_depth = i+1
                 # Transpose the input into time major input
-                inp_transp = tf.transpose(encoder_input, [1, 0, 2])
-
-                encoder_output = self._layer_encoder_input(inp_transp,
-                                                           seq_len, layer_depth=layer_depth)
+                encoder_output = self._layer_encoder_input(
+                    tf.transpose(encoder_input, [1, 0, 2]), seq_len, layer_depth=layer_depth)
 
                 if time_major_states.has_key(layer_depth):
                     time_major_states[layer_depth] = encoder_output
