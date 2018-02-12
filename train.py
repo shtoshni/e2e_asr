@@ -46,7 +46,7 @@ def parse_options():
 
     parser.add_argument("-hsize", "--hidden_size", default=256, type=int, help="Hidden layer size")
     parser.add_argument("-hsize_decoder", "--hidden_size_decoder", default=256, type=int, help="Hidden layer size")
-    parser.add_argument("-nlp", "--num_layers_phone", default=1, type=int, help="Number of layers to decode side")
+    parser.add_argument("-nlp", "--num_layers_phone", default=3, type=int, help="Number of layers to decode side")
     parser.add_argument("-nlc", "--num_layers_char", default=4, type=int, help="Number of layers to decode side")
 
     parser.add_argument("-tvp", "--target_vocab_file_phone", default="phone.vocab", type=str, help="Vocab file for phone target")
@@ -83,7 +83,7 @@ def parse_options():
     arg_dict = vars(args)
 
     arg_dict['tasks'] = parse_tasks(arg_dict['tasks'])
-    arg_dict['steps_per_checkpoint'] = 1000
+    arg_dict['steps_per_checkpoint'] = 100
 
     skip_string = ""
     if arg_dict['skip_step'] != 1:
@@ -234,119 +234,128 @@ def create_model(session, isTraining, num_layers, data_iter, model_path=None, ac
 
 def train():
     """Train a sequence to sequence parser."""
-    with tf.Session(config=tf.ConfigProto(intra_op_parallelism_threads=NUM_THREADS)) as sess:
-        print("Loading train data from %s" % FLAGS.data_dir)
-        sys.stdout.flush()
-
-
-        train_set = SpeechDataset(FLAGS.dataset_params, "train", isTraining=True)
-        dev_set = SpeechDataset(FLAGS.dataset_params, "dev", isTraining=False)
-
-        with tf.variable_scope("model", reuse=None):
-            model, steps_done = create_model(sess, True, FLAGS.num_layers, train_set)
-        with tf.variable_scope("model", reuse=True):
-            print ("Creating dev model")
-            model_dev = create_seq2seq_model(False, {'char': FLAGS.num_layers['char']}, dev_set)
-
-
-        # Prepare training data
-        epoch = model.epoch.eval()
-        epochs_left = FLAGS.max_epochs - epoch
-
-        train_writer = tf.summary.FileWriter(FLAGS.train_dir + '/train', tf.get_default_graph())
-        asr_err_best = 1.0
-        if steps_done > 0:
-            # Some training has been done
-            score_file = os.path.join(FLAGS.train_dir, "best.txt")
-            # Check existence of such a file
-            if os.path.isfile(score_file):
-                try:
-                    asr_err_best = float(open(score_file).readline().strip("\n"))
-                except ValueError:
-                    asr_err_best = 1
-
-        print ("Best ASR error rate - %f" %asr_err_best)
-
-        # This is the training loop.
-        epoch_time, step_time, loss = 0.0, 0.0, 0.0
-        current_step = 0
-        previous_losses = []
-
-
-        while epoch <= FLAGS.max_epochs:
-            print("Epochs done: %d" %epoch)
+    with tf.Graph().as_default():
+        tf.set_random_seed(10)
+        with tf.Session(config=tf.ConfigProto(intra_op_parallelism_threads=NUM_THREADS)) as sess:
+            print("Loading train data from %s" % FLAGS.data_dir)
             sys.stdout.flush()
-            sess.run(train_set.initialize_iterator())
-            while True:
-                try:
-                    start_time = time.time()
-                    output_feed = [model.updates,  model.losses]
 
-                    if (current_step % FLAGS.steps_per_checkpoint) == 0:
-                        output_feed.append(model.merged)
-                        _, step_loss, train_summary = sess.run(output_feed)
-                        train_writer.add_summary(train_summary, current_step)
-                    else:
-                        _, step_loss = sess.run(output_feed)
 
-                    step_loss = step_loss["char"]
+            train_set = SpeechDataset(FLAGS.dataset_params, "train*0.*.", isTraining=True)
+            dev_set = SpeechDataset(FLAGS.dataset_params, "dev*0.*.", isTraining=False)
 
-                    current_step += 1
-                    step_time += (time.time() - start_time) / FLAGS.steps_per_checkpoint
-                    loss += step_loss / FLAGS.steps_per_checkpoint
+            with tf.variable_scope("model", reuse=None):
+                model, steps_done = create_model(sess, True, FLAGS.num_layers, train_set)
+            with tf.variable_scope("model", reuse=True):
+                print ("Creating dev model")
+                model_dev = create_seq2seq_model(False, {'char': FLAGS.num_layers['char']}, dev_set)
 
-                    if current_step % FLAGS.steps_per_checkpoint == 0:
-                        # Print statistics for the previous epoch.
-                        perplexity = math.exp(loss) if loss < 300 else float('inf')
 
-                        print ("global step %d learning rate %.4f step-time %.2f perplexity "
-                               "%.2f" % (model.global_step.eval(), model.learning_rate.eval(),
-                                         step_time, perplexity))
+            # Prepare training data
+            epoch = model.epoch.eval()
+            epochs_left = FLAGS.max_epochs - epoch
 
-                        decode_start_time = time.time()
-                        asr_err_cur = asr_decode(sess, model_dev, dev_set)
-                        decode_end_time = time.time() - decode_start_time
+            train_writer = tf.summary.FileWriter(FLAGS.train_dir + '/train', tf.get_default_graph())
+            asr_err_best = 1.0
+            if steps_done > 0:
+                # Some training has been done
+                score_file = os.path.join(FLAGS.train_dir, "best.txt")
+                # Check existence of such a file
+                if os.path.isfile(score_file):
+                    try:
+                        asr_err_best = float(open(score_file).readline().strip("\n"))
+                    except ValueError:
+                        asr_err_best = 1
 
-                        print ("ASR error: %.4f, Time taken: %s"
-                               %(asr_err_cur, timedelta(decode_end_time)))
+            print ("Best ASR error rate - %f" %asr_err_best)
 
-                        err_summary = get_summary(asr_err_cur, "ASR Error")
-                        train_writer.add_summary(err_summary, current_step)
+            # This is the training loop.
+            epc_time, ckpt_time, loss = 0.0, 0.0, 0.0
+            current_step = 0
+            previous_losses = []
 
-                        if (len(previous_losses) > 0 and loss > previous_losses[-1]):
-                            if model.learning_rate.eval() > 1e-4:
-                                sess.run(model.learning_rate_decay_op)
-                                print ("Learning rate decreased !!")
-                        previous_losses.append(loss)
 
-                        # Early stopping - ONLY UPDATING MODEL IF BETTER PERFORMANCE ON DEV
-                        if asr_err_best > asr_err_cur:
-                            asr_err_best = asr_err_cur
-                            # Save model
-                            print("Best ASR Error rate: %.4f" % asr_err_best)
-                            print("Saving the best model !!")
+            while epoch <= FLAGS.max_epochs:
+                print("Epochs done: %d" %epoch)
+                sys.stdout.flush()
+                sess.run(train_set.initialize_iterator())
+                # Track time taken
+                epc_start_time = time.time()
+                ckpt_start_time = time.time()
+                while True:
+                    try:
+                        output_feed = [model.updates,  model.losses]
 
-                            # Save the best score
-                            f = open(os.path.join(FLAGS.train_dir, "best.txt"), "w")
-                            f.write(str(asr_err_best))
-                            f.close()
+                        if (current_step % FLAGS.steps_per_checkpoint) == 0:
+                            output_feed.append(model.merged)
+                            _, step_loss, train_summary = sess.run(output_feed)
+                            train_writer.add_summary(train_summary, current_step)
+                        else:
+                            _, step_loss = sess.run(output_feed)
 
-                            ## Save the model in best model directory
-                            checkpoint_path = os.path.join(FLAGS.best_model_dir, "asr.ckpt")
-                            model.best_saver.save(sess, checkpoint_path, global_step=model.global_step, write_meta_graph=False)
+                        step_loss = step_loss["char"]
 
-                        # Also save the model for plotting
-                        checkpoint_path = os.path.join(FLAGS.train_dir, "asr.ckpt")
-                        model.saver.save(sess, checkpoint_path, global_step=model.global_step, write_meta_graph=False)
+                        current_step += 1
+                        loss += step_loss / FLAGS.steps_per_checkpoint
 
-                        print ("\n")
+                        if current_step % FLAGS.steps_per_checkpoint == 0:
+                            # Print statistics for the previous epoch.
+                            perplexity = math.exp(loss) if loss < 300 else float('inf')
+                            ckpt_time = time.time() - ckpt_start_time
+
+                            print ("Step %d Learning rate %.4f Checktpoint time %.2f Perplexity "
+                                   "%.2f" % (model.global_step.eval(), model.learning_rate.eval(),
+                                             ckpt_time, perplexity))
+
+                            decode_start_time = time.time()
+                            asr_err_cur = asr_decode(sess, model_dev, dev_set)
+                            decode_end_time = time.time() - decode_start_time
+
+                            print ("ASR error: %.4f, Decoding time: %s"
+                                   %(asr_err_cur, timedelta(seconds=decode_end_time)))
+
+                            err_summary = get_summary(asr_err_cur, "ASR Error")
+                            train_writer.add_summary(err_summary, current_step)
+
+                            if (len(previous_losses) > 0 and loss > previous_losses[-1]):
+                                if model.learning_rate.eval() > 1e-4:
+                                    sess.run(model.learning_rate_decay_op)
+                                    print ("Learning rate decreased !!")
+                            previous_losses.append(loss)
+
+                            # Early stopping
+                            if asr_err_best > asr_err_cur:
+                                asr_err_best = asr_err_cur
+                                # Save model
+                                print("Best ASR Error rate: %.4f" % asr_err_best)
+                                print("Saving the best model !!")
+
+                                # Save the best score
+                                f = open(os.path.join(FLAGS.train_dir, "best.txt"), "w")
+                                f.write(str(asr_err_best))
+                                f.close()
+
+                                # Save the model in best model directory
+                                checkpoint_path = os.path.join(FLAGS.best_model_dir, "asr.ckpt")
+                                model.best_saver.save(sess, checkpoint_path, global_step=model.global_step, write_meta_graph=False)
+
+                            # Also save the model for plotting
+                            checkpoint_path = os.path.join(FLAGS.train_dir, "asr.ckpt")
+                            model.saver.save(sess, checkpoint_path, global_step=model.global_step, write_meta_graph=False)
+
+                            print ("\n")
+                            sys.stdout.flush()
+                            # Reinitialze tracking variables
+                            ckpt_start_time = time.time()
+                            loss = 0.0
+
+                    except tf.errors.OutOfRangeError:
+                        sess.run(model.epoch_incr)
+                        epoch += 1
+                        epc_time = time.time() - epc_start_time
+                        print ("\nEPOCH TIME: %s\n" %(str(timedelta(seconds=epc_time))))
                         sys.stdout.flush()
-                        step_time, loss = 0.0, 0.0
-
-                except tf.errors.OutOfRangeError:
-                    sess.run(model.epoch_incr)
-                    epoch += 1
-                    break
+                        break
 
 
 def get_summary(value, tag):

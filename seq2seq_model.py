@@ -24,16 +24,10 @@ class Seq2SeqModel(object):
     @classmethod
     def class_params(cls):
         params = Bunch()
-        params['batch_size'] = 64
         params['isTraining'] = True
         # Task specification
-        params['buckets'] = {'char':[(210, 60), (346, 120), (548, 180), (850, 200),
-                                     (1500, 380)],
-                             'phone': [(210, 50), (346, 110), (548, 140), (850, 150),
-                                       (1500, 250)]}
         params['tasks'] = ['char']
         params['num_layers'] = {'char':1}
-        params['feat_length'] = 80
 
         # Optimization params
         params['learning_rate'] = 1e-3
@@ -121,10 +115,16 @@ class Seq2SeqModel(object):
             tf.summary.scalar('Negative log likelihood ' + task, self.losses[task])
             # Gradients and parameter updation for training the model.
             trainable_vars = tf.trainable_variables()
+            total_params = 0
             print ("\nModel parameters:\n")
             for var in trainable_vars:
                 print (("{0}: {1}").format(var.name, var.get_shape()))
-            print ("\n")
+                var_params = 1
+                for dim in var.get_shape().as_list():
+                    var_params *= dim
+                total_params += var_params
+            print ("\nTOTAL PARAMS: %.2f (in millions)\n" %(total_params/float(1e6)))
+
             # Initialize optimizer
             opt = tf.train.AdamOptimizer(self.learning_rate)
 
@@ -132,17 +132,15 @@ class Seq2SeqModel(object):
             self.total_loss = 0.0
             for task in params.tasks:
                 self.total_loss += self.losses[task]
-
             if params.avg:
                 self.total_loss /= float(len(params.tasks))
             tf.summary.scalar('Total loss', self.total_loss)
+
             # Get gradients from loss
             gradients = tf.gradients(self.total_loss, trainable_vars)
             # Gradient clipping
             clipped_gradients, norm = tf.clip_by_global_norm(gradients,
                                                              params.max_gradient_norm)
-            self.gradient_norm = norm
-            tf.summary.scalar('Gradient Norm', self.gradient_norm)
             # Apply gradients
             self.updates = opt.apply_gradients(
                 zip(clipped_gradients, trainable_vars),

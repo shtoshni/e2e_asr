@@ -104,11 +104,20 @@ class AttnDecoder(Decoder):
                     next_input = inputs_ta.read(time)
                 else:
                     next_state = state
-                    loop_state = attention(cell_output, loop_state[1])
+                    #loop_state = attention(cell_output, loop_state[1])
+                    if params.use_lstm:
+                        loop_state = attention(state.c, loop_state[1])
+                    else:
+                        loop_state = attention(state, loop_state[1])
                     with variable_scope.variable_scope("AttnOutputProjection"):
-                        output = _linear([cell_output, loop_state[0]],
-                                            self.cell.output_size, True)
-                        #output = out_proj([cell_output] + list(loop_state[0]))
+                        #output = _linear([cell_output, loop_state[0]],
+                        #                 self.cell.output_size, True)
+                        if params.use_lstm:
+                            output = _linear([state.c, loop_state[0]],
+                                             self.cell.output_size, True)
+                        else:
+                            output = _linear([state, loop_state[0]],
+                                             self.cell.output_size, True)
 
 
                     if not params.isTraining:
@@ -146,4 +155,5 @@ class AttnDecoder(Decoder):
         # Concatenate the output across timesteps to get a tensor of TxBx|V|
         # shape
         outputs = outputs.concat()
+
         return outputs

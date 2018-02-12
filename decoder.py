@@ -39,6 +39,7 @@ class Decoder(object):
         params['vocab_size'] = 1000
         params['samp_prob'] = 0.1
         params['max_output'] = 400
+        params['use_lstm'] = True
 
         return params
 
@@ -57,10 +58,13 @@ class Decoder(object):
         if params.isTraining and (params.samp_prob > 0.0):
             self.params.isSampling = True
 
-    def get_cell(self, use_proj=True):
+    def get_cell(self):
         """Create the LSTM cell used by decoder."""
         params = self.params
-        cell = rnn_cell.BasicLSTMCell(params.hidden_size)
+        if params.use_lstm:
+            cell = rnn_cell.BasicLSTMCell(params.hidden_size)
+        else:
+            cell = rnn_cell.GRUCell(params.hidden_size)
         if params.isTraining:
             # During training we use a dropout wrapper
             cell = rnn_cell.DropoutWrapper(
@@ -72,8 +76,8 @@ class Decoder(object):
         # Use the OutputProjectionWrapper to project cell output to output
         # vocab size. This projection is fine for a small vocabulary output
         # but would be bad for large vocabulary output spaces.
-        if use_proj:
-            cell = rnn_cell.OutputProjectionWrapper(cell, params.vocab_size)
+        #if params.vocab_size < params.hidden_size:
+        cell = rnn_cell.OutputProjectionWrapper(cell, params.vocab_size)
         return cell
 
     def prepare_decoder_input(self, decoder_inputs):
