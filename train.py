@@ -32,23 +32,16 @@ from seq2seq_model import Seq2SeqModel
 from encoder import Encoder
 from attn_decoder import AttnDecoder
 
-#import tensorflow.contrib.eager as tfe
-#tfe.enable_eager_execution()
 
-
-#_buckets = [(210, (60, 50)), (346, (120, 110)), (548, (180, 140)), (850, (200, 150)), (1500, (380, 250))]
-_buckets = [(210, (23, 50)), (346, (54, 110)), (548, (58, 140)), (850, (69, 150)), (1500, (119, 250))]
-bucket_size = [input_size for input_size, _ in _buckets]
 task_to_freq = {'phone':1.0, 'char':1.0}
-eval_task_to_id = {'char':0}
 
 NUM_THREADS = 1
-
 FLAGS = object()
 
 def parse_tasks(task_string):
+    print (task_string)
     tasks = ["char"]
-    if "p" in tasks:
+    if "p" in task_string:
         tasks.append("phone")
     return tasks
 
@@ -163,8 +156,6 @@ def get_split_files(split="train"):
     for file_name in all_files:
         split_files.append(file_name)
     split_files.sort()
-    if FLAGS.num_files > 0:
-        split_files = split_files[:FLAGS.num_files]
     print ("Number of %s files: %d" %(split, len(split_files)))
     return split_files
 
@@ -179,8 +170,9 @@ def create_seq2seq_model(isTraining, num_layers, data_iter):
     decoder = {}
     for task in num_layers:
         # Create separate decoders for separate tasks
-        with variable_scope.variable_scope(task):
-            decoder[task] = create_decoder(isTraining)
+        decoder[task] = create_decoder(isTraining,
+                                       vocab_size=FLAGS.output_vocab_size[task],
+                                       scope=task)
 
     seq2seq_model = Seq2SeqModel(encoder, decoder, params=seq2seq_params, data_iter=data_iter)
     return seq2seq_model
@@ -196,13 +188,11 @@ def create_encoder(isTraining):
     return encoder
 
 
-def create_decoder(isTraining):
-    if isTraining:
-        decoder = AttnDecoder()
-    else:
-        decoder_params = AttnDecoder.class_params()
-        decoder_params.isTraining = False
-        decoder = AttnDecoder(decoder_params)
+def create_decoder(isTraining, vocab_size, scope=None):
+    decoder_params = AttnDecoder.class_params()
+    decoder_params.isTraining = isTraining
+    decoder_params.vocab_size = vocab_size
+    decoder = AttnDecoder(decoder_params, scope=scope)
     return decoder
 
 

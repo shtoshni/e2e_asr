@@ -29,10 +29,11 @@ class AttnDecoder(Decoder):
         params['attention_vec_size'] = 64
         return params
 
-    def __init__(self, params=None):
+    def __init__(self, params=None, scope=None):
         """Initializer."""
         super(AttnDecoder, self).__init__(params)
         # No output projection required in attention decoder
+        self.scope = scope
         self.cell = self.get_cell()
 
     def __call__(self, decoder_inp, seq_len,
@@ -40,7 +41,10 @@ class AttnDecoder(Decoder):
         # First prepare the decoder input - Embed the input and obtain the
         # relevant loop function
         params = self.params
-        decoder_inputs, loop_function = self.prepare_decoder_input(decoder_inp)
+        scope = "rnn_decoder" + ("" if self.scope is None else "_" + self.scope)
+
+        with variable_scope.variable_scope(scope):
+            decoder_inputs, loop_function = self.prepare_decoder_input(decoder_inp)
 
         # TensorArray is used to do dynamic looping over decoder input
         inputs_ta = tf.TensorArray(size=params.max_output,
@@ -60,7 +64,7 @@ class AttnDecoder(Decoder):
         batch_alpha_size = array_ops.stack([batch_size, attn_length, 1, 1])
         alpha = array_ops.zeros(batch_alpha_size, dtype=dtypes.float32)
 
-        with variable_scope.variable_scope("rnn_decoder"):
+        with variable_scope.variable_scope(scope):
             # Calculate the W*h_enc component
             hidden = tf.expand_dims(encoder_hidden_states, 2)
             W_attn = variable_scope.get_variable(
@@ -135,9 +139,10 @@ class AttnDecoder(Decoder):
 
                 return (elements_finished, next_input, next_state, output, loop_state)
 
-        # outputs is a TensorArray with T=max(sequence_length) entries
-        # of shape Bx|V|
-        outputs, state, _ = rnn.raw_rnn(self.cell, raw_loop_function)
+            # outputs is a TensorArray with T=max(sequence_length) entries
+            # of shape Bx|V|
+            outputs, state, _ = rnn.raw_rnn(self.cell, raw_loop_function)
+
         # Concatenate the output across timesteps to get a tensor of TxBx|V|
         # shape
         outputs = outputs.concat()
