@@ -11,27 +11,22 @@ import random
 import sys
 import time
 
-import numpy as np
-from six.moves import xrange
-import cPickle as pickle
 import argparse
 import operator
-from bunch import bunchify
-import editdistance as ed
 import glob
+import re
+from datetime import timedelta
+
+import numpy as np
+from bunch import Bunch, bunchify
+import editdistance as ed
+import tensorflow as tf
 
 import data_utils
-import seq2seq_model
-import subprocess
-import re
-
-import tensorflow as tf
-from tensorflow.python.ops import variable_scope
-
-from seq2seq_model import Seq2SeqModel
-from encoder import Encoder
 from attn_decoder import AttnDecoder
-
+from encoder import Encoder
+from seq2seq_model import Seq2SeqModel
+from speech_dataset import SpeechDataset
 
 task_to_freq = {'phone':1.0, 'char':1.0}
 
@@ -49,7 +44,6 @@ def parse_tasks(task_string):
 def parse_options():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("-bsize", "--batch_size", default=64, type=int, help="Mini-batch Size")
     parser.add_argument("-hsize", "--hidden_size", default=256, type=int, help="Hidden layer size")
     parser.add_argument("-hsize_decoder", "--hidden_size_decoder", default=256, type=int, help="Hidden layer size")
     parser.add_argument("-nlp", "--num_layers_phone", default=1, type=int, help="Number of layers to decode side")
@@ -71,9 +65,12 @@ def parse_options():
     parser.add_argument("-skip_step", "--skip_step", default=1, type=int, help="Frame skipping factor as we go up the stacked layers")
 
     parser.add_argument("-out_prob", "--output_keep_prob", default=0.9, type=float, help="Output keep probability for dropout")
-    parser.add_argument("-feat_len", "--feat_length", default=80, type=int, help="Number of features per frame")
     parser.add_argument("-base_pyramid", "--base_pyramid", default=False, action="store_true", help="Do pyramid at feature level as well?")
     parser.add_argument("-sch_samp", "--sch_samp", default=True, action="store_true", help="Do pyramid at feature level as well?")
+
+    parser.add_argument("-bsize", "--batch_size", default=64, type=int, help="Mini-batch Size")
+    parser.add_argument("-feat_len", "--feat_length", default=80, type=int, help="Number of features per frame")
+    parser.add_argument("-max_out", "--max_output", default=120, type=int, help="Maximum length of output sequence")
 
     parser.add_argument("-avg", "--avg", default=False, action="store_true", help="Average the loss")
     parser.add_argument("-num_files", "--num_files", default=0, type=int, help="Num files")
@@ -86,7 +83,7 @@ def parse_options():
     arg_dict = vars(args)
 
     arg_dict['tasks'] = parse_tasks(arg_dict['tasks'])
-    arg_dict['steps_per_checkpoint'] = 500
+    arg_dict['steps_per_checkpoint'] = 5
 
     skip_string = ""
     if arg_dict['skip_step'] != 1:
@@ -145,8 +142,15 @@ def parse_options():
                 sys.stdout.flush()
                 g.write(arg + "\t" + str(arg_val) + "\n")
 
+    dataset_params = Bunch()
+    dataset_params.data_dir = arg_dict['data_dir']
+    dataset_params.batch_size = arg_dict['batch_size']
+    dataset_params.max_output = arg_dict['max_output']
+    dataset_params.feat_length = arg_dict['feat_length']
+
     global FLAGS
     FLAGS = bunchify(arg_dict)
+    FLAGS.dataset_params = dataset_params
 
 
 def get_split_files(split="train"):
@@ -235,28 +239,14 @@ def train():
         sys.stdout.flush()
 
 
-        train_set = tf.data.TFRecordDataset(get_split_files(split="train"))
-        train_set = train_set.map(Seq2SeqModel.get_instance)
-        train_set = train_set.shuffle(buffer_size=10000)
-        train_set = train_set.padded_batch(FLAGS.batch_size,
-                                           padded_shapes={"logmel": [None, FLAGS.feat_length], 'char': [None],
-                                                          "phone": [None], "logmel_len":[],
-                                                          "char_len":[], "phone_len":[]})
-        train_iter = train_set.make_initializable_iterator()
-
-        dev_set = tf.data.TFRecordDataset(get_split_files(split="dev"))
-        dev_set = dev_set.map(Seq2SeqModel.get_instance)
-        dev_set = dev_set.padded_batch(FLAGS.batch_size,
-                                       padded_shapes={"logmel": [None, FLAGS.feat_length], 'char': [None],
-                                                      "phone": [None], "logmel_len":[],
-                                                      "char_len": [], "phone_len": []})
-        dev_iter = dev_set.make_initializable_iterator()
+        train_set = SpeechDataset(FLAGS.dataset_params, "train", isTraining=True)
+        dev_set = SpeechDataset(FLAGS.dataset_params, "dev", isTraining=False)
 
         with tf.variable_scope("model", reuse=None):
-            model, steps_done = create_model(sess, True, FLAGS.num_layers, train_iter)
+            model, steps_done = create_model(sess, True, FLAGS.num_layers, train_set)
         with tf.variable_scope("model", reuse=True):
             print ("Creating dev model")
-            model_dev = create_seq2seq_model(False, {'char': FLAGS.num_layers['char']}, dev_iter)
+            model_dev = create_seq2seq_model(False, {'char': FLAGS.num_layers['char']}, dev_set)
 
 
         # Prepare training data
@@ -278,7 +268,7 @@ def train():
         print ("Best ASR error rate - %f" %asr_err_best)
 
         # This is the training loop.
-        step_time, loss = 0.0, 0.0
+        epoch_time, step_time, loss = 0.0, 0.0, 0.0
         current_step = 0
         previous_losses = []
 
@@ -286,7 +276,7 @@ def train():
         while epoch <= FLAGS.max_epochs:
             print("Epochs done: %d" %epoch)
             sys.stdout.flush()
-            sess.run(train_iter.initializer)
+            sess.run(train_set.initialize_iterator())
             while True:
                 try:
                     start_time = time.time()
@@ -313,7 +303,7 @@ def train():
                                "%.2f" % (model.global_step.eval(), model.learning_rate.eval(),
                                          step_time, perplexity))
 
-                        asr_err_cur = asr_decode(sess, model_dev, dev_iter)
+                        asr_err_cur = asr_decode(sess, model_dev, dev_set)
                         print ("ASR error: %.4f" %(asr_err_cur))
 
                         err_summary = get_summary(asr_err_cur, "ASR Error")
@@ -383,7 +373,7 @@ def wp_array_to_sent(wp_array, reverse_char_vocab, normalizer):
     return normalizer(sent)
 
 
-def asr_decode(sess, model_dev, dev_iter):
+def asr_decode(sess, model_dev, dev_set):
     # Load vocabularies.
     char_vocab_path = "/scratch2/asr_multi/data/lang/vocab/char.vocab"
     char_vocab, rev_char_vocab = data_utils.initialize_vocabulary(char_vocab_path)
@@ -402,23 +392,22 @@ def asr_decode(sess, model_dev, dev_iter):
     total_words = 0
 
     # Initialize the dev iterator
-    sess.run(dev_iter.initializer)
+    sess.run(model_dev.data_iter.initialize_iterator())
     while True:
         try:
-            start_time = time.time()
-            output_feed = [model_dev.decoder_inputs["char"], model_dev.seq_len_target["char"],
+            output_feed = [model_dev.decoder_inputs["char"],
                            model_dev.outputs["char"]]
 
-            gold_ids, seq_len, output_logits = sess.run(output_feed)
+            gold_ids, output_logits = sess.run(output_feed)
             gold_ids = np.array(gold_ids[1:, :]).T
             batch_size = gold_ids.shape[0]
 
             outputs = np.argmax(output_logits, axis=1)
-            outputs = np.reshape(outputs, (-1, batch_size)) ##T*B
+            outputs = np.reshape(outputs, (-1, batch_size))  # T*B
 
-            to_decode = np.array(outputs).T ## T * B and the transpose makes it B*T
+            to_decode = outputs.T  # B*T
 
-            for sent_id in xrange(to_decode.shape[0]):
+            for sent_id in xrange(batch_size):
                 gold_asr = wp_array_to_sent(gold_ids[sent_id, :], rev_char_vocab, rev_normalizer)
                 decoded_asr = wp_array_to_sent(to_decode[sent_id, :], rev_char_vocab, rev_normalizer)
                 raw_asr_words, decoded_words = data_utils.get_relevant_words(decoded_asr)

@@ -84,7 +84,7 @@ class Seq2SeqModel(object):
         """Creates the computational graph."""
         params = self.params
         self.encoder_inputs, self.decoder_inputs, self.seq_len, \
-            self.seq_len_target = self.get_batch(self.data_iter.get_next())
+            self.seq_len_target = self.data_iter.get_batch()
 
         self.targets = {}
         self.target_weights = {}
@@ -147,56 +147,3 @@ class Seq2SeqModel(object):
             self.updates = opt.apply_gradients(
                 zip(clipped_gradients, trainable_vars),
                 global_step=self.global_step)
-
-
-    def get_batch(self, batch):
-        encoder_inputs = batch["logmel"]
-        encoder_len = batch["logmel_len"]
-
-        decoder_inputs = {}
-        decoder_len = {}
-        for task in self.params.num_layers:
-            decoder_inputs[task] = tf.transpose(batch[task], [1, 0])
-            decoder_len[task] = batch[task + "_len"]
-            if not self.params.isTraining:
-                decoder_len[task] = tf.ones_like(decoder_len[task]) * 100
-
-        return [encoder_inputs, decoder_inputs, encoder_len, decoder_len]
-
-
-    @staticmethod
-    def get_instance(proto, feat_length=80):
-        # -- get reader and read serialized examples from queue
-        context_features = {
-            "segment": tf.FixedLenFeature([], tf.string),
-            "logmel_len": tf.FixedLenFeature([], tf.int64),
-            "cint_len": tf.FixedLenFeature([], tf.int64),
-            "pint_len": tf.FixedLenFeature([], tf.int64),
-        }
-        sequence_features = {
-            "logmel": tf.FixedLenSequenceFeature(shape=[feat_length], dtype=tf.float32),
-            "cint": tf.FixedLenSequenceFeature(shape=[], dtype=tf.int64),
-            "pint": tf.FixedLenSequenceFeature(shape=[], dtype=tf.int64)
-        }
-        # ---------------------------------------------------------------------------
-        # -- parse a sequence example given the above instructions on the structure
-        context,sequence = tf.parse_single_sequence_example(
-            serialized=proto,
-            context_features=context_features,
-            sequence_features=sequence_features
-        )
-        # ---------------------------------------------------------------------------
-        # -- unpack segment ID
-        segmentID = context["segment"]
-        # -- ready batch of speech // characters // phonemes
-        logmel = sequence["logmel"]
-        cint = sequence["cint"]
-        pint = sequence["pint"]
-        # -- get (non-zero) lengths of sequences
-        logmel_len = context["logmel_len"]
-        cint_len = context["cint_len"]
-        pint_len = context["pint_len"]
-
-        return {"logmel": logmel, "char": cint, "phone":pint,
-                "logmel_len": logmel_len, "char_len": cint_len,
-                "phone_len": pint_len}
