@@ -74,7 +74,7 @@ def parse_options():
 
     parser.add_argument("-avg", "--avg", default=False, action="store_true", help="Average the loss")
     parser.add_argument("-num_files", "--num_files", default=0, type=int, help="Num files")
-    parser.add_argument("-max_epochs", "--max_epochs", default=500, type=int, help="Max epochs")
+    parser.add_argument("-max_epochs", "--max_epochs", default=30, type=int, help="Max epochs")
     parser.add_argument("-eval", "--eval_dev", default=False, action="store_true", help="Get dev set results using the last saved model")
     parser.add_argument("-test", "--test", default=False, action="store_true", help="Get test results using the last saved model")
     parser.add_argument("-run_id", "--run_id", default=0, type=int, help="Run ID")
@@ -83,7 +83,7 @@ def parse_options():
     arg_dict = vars(args)
 
     arg_dict['tasks'] = parse_tasks(arg_dict['tasks'])
-    arg_dict['steps_per_checkpoint'] = 5
+    arg_dict['steps_per_checkpoint'] = 1000
 
     skip_string = ""
     if arg_dict['skip_step'] != 1:
