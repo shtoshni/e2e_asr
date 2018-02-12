@@ -303,8 +303,12 @@ def train():
                                "%.2f" % (model.global_step.eval(), model.learning_rate.eval(),
                                          step_time, perplexity))
 
+                        decode_start_time = time.time()
                         asr_err_cur = asr_decode(sess, model_dev, dev_set)
-                        print ("ASR error: %.4f" %(asr_err_cur))
+                        decode_end_time = time.time() - decode_start_time
+
+                        print ("ASR error: %.4f, Time taken: %s"
+                               %(asr_err_cur, timedelta(decode_end_time)))
 
                         err_summary = get_summary(asr_err_cur, "ASR Error")
                         train_writer.add_summary(err_summary, current_step)
