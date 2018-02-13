@@ -14,6 +14,7 @@ from bunch import Bunch
 
 import tensorflow as tf
 
+import tf_utils
 import data_utils
 from losses import LossUtils
 
@@ -84,12 +85,9 @@ class Seq2SeqModel(object):
         self.target_weights = {}
         for task in params.tasks:
             # Targets are shifted by one - T*B
-            self.targets[task] = tf.slice(self.decoder_inputs[task], [1, 0], [-1, -1])
-
-            batch_major_mask = tf.sequence_mask(self.seq_len_target[task],
-                                                dtype=tf.float32)  # B*T
-            time_major_mask = tf.transpose(batch_major_mask, [1, 0])  # T*B
-            self.target_weights[task] = tf.reshape(time_major_mask, [-1])
+            self.targets[task], self.target_weights[task] =\
+                tf_utils.create_shifted_targets(self.decoder_inputs[task],
+                                                self.seq_len_target[task])
 
         # Create computational graph
         # First encode input
@@ -109,7 +107,7 @@ class Seq2SeqModel(object):
             for task in params.tasks:
                 task_depth = params.num_layers[task]
                 # Training outputs and losses.
-                self.losses[task] = LossUtils.seq2seq_loss(
+                self.losses[task] = LossUtils.cross_entropy_loss(
                     self.outputs[task], self.targets[task], self.seq_len_target[task])
 
             tf.summary.scalar('Negative log likelihood ' + task, self.losses[task])

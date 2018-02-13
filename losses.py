@@ -1,11 +1,10 @@
 import tensorflow as tf
 
-from tensorflow.python.framework import ops
 
 class LossUtils(object):
 
     @staticmethod
-    def seq2seq_loss(logits, targets, seq_len_target):
+    def cross_entropy_loss(logits, targets, seq_len_target):
         """Calculate the cross entropy loss w.r.t. given target.
 
         Args:
@@ -16,7 +15,7 @@ class LossUtils(object):
             seq_len_target: Sequence length of output sequences. Required to
                 mask padding symbols in output sequences.
         """
-        with ops.name_scope("sequence_loss", [logits, targets]):
+        with tf.name_scope("sequence_loss", [logits, targets]):
             flat_targets = tf.reshape(targets, [-1])
             cost = tf.nn.sparse_softmax_cross_entropy_with_logits(
                 logits=logits, labels=flat_targets)
