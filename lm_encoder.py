@@ -42,7 +42,7 @@ class LM(Decoder):
         params = self.params
         scope = "rnn_decoder" + ("" if self.scope is None else "_" + self.scope)
 
-        with variable_scope.variable_scope(scope):
+        with variable_scope.variable_scope(scope, reuse=True):
             decoder_inputs, loop_function = self.prepare_decoder_input(decoder_inp)
 
         # TensorArray is used to do dynamic looping over decoder input
@@ -56,7 +56,7 @@ class LM(Decoder):
         batch_attn_size = array_ops.stack([batch_size, params.encoder_hidden_size])
         zero_attn = array_ops.zeros(batch_attn_size, dtype=dtypes.float32)
 
-        with variable_scope.variable_scope(scope):
+        with variable_scope.variable_scope(scope, reuse=True):
             def raw_loop_function(time, cell_output, state, loop_state):
                 # If loop_function is set, we use it instead of decoder_inputs.
                 elements_finished = (time >= tf.cast(seq_len, tf.int32))
@@ -105,7 +105,7 @@ class LM(Decoder):
 
             # outputs is a TensorArray with T=max(sequence_length) entries
             # of shape Bx|V|
-            outputs, state, _ = rnn.raw_rnn(self.cell, raw_loop_function)
+            outputs, _, _ = rnn.raw_rnn(self.cell, raw_loop_function)
 
         # Concatenate the output across timesteps to get a tensor of TxBx|V|
         # shape

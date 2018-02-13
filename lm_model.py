@@ -1,4 +1,4 @@
-"""Seq2Seq model class that creates the computation graph.
+"""Language model class that creates the computation graph.
 
 Author: Shubham Toshniwal
 Date: February, 2018
@@ -8,19 +8,16 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import numpy as np
-import random
 from bunch import Bunch
 
 import tensorflow as tf
 
 import tf_utils
-import data_utils
 from losses import LossUtils
 
 
 class LMModel(object):
-    """Implements the Attention-Enabled Encoder-Decoder model."""
+    """Language model."""
 
     @classmethod
     def class_params(cls):
@@ -34,7 +31,7 @@ class LMModel(object):
         return params
 
     def __init__(self, encoder, data_iter, params=None):
-        """Initializer of class that defines the computational graph.
+        """Initializer of class
 
         Args:
             encoder: Encoder object executed via encoder(args)
@@ -60,6 +57,25 @@ class LMModel(object):
         self.encoder = encoder
 
         self.create_computational_graph()
+        # Gradients and parameter updation for training the model.
+        trainable_vars = []
+        for var in tf.trainable_variables():
+            if "decoder_char" in var.name:
+                trainable_vars.append(var)
+                print (var.name)
+
+        # Initialize optimizer
+        opt = tf.train.AdamOptimizer(self.learning_rate, name='AdamLM')
+
+        # Get gradients from loss
+        gradients = tf.gradients(self.losses, trainable_vars)
+        # Gradient clipping
+        clipped_gradients, _ = tf.clip_by_global_norm(gradients,
+                                                         params.max_gradient_norm)
+        # Apply gradients
+        self.updates = opt.apply_gradients(
+            zip(clipped_gradients, trainable_vars),
+            global_step=self.global_step)
 
     def create_computational_graph(self):
         """Creates the computational graph."""
@@ -68,33 +84,17 @@ class LMModel(object):
 
         self.targets, self.target_weights =\
             tf_utils.create_shifted_targets(self.encoder_inputs, self.seq_len)
-
+        #self.outputs = self.encoder(self.encoder_inputs, self.seq_len)
         # Create computational graph
         # First encode input
-        self.outputs = self.encoder(self.encoder_inputs, self.seq_len)
-        self.loss = LossUtils.cross_entropy_loss(
+        with tf.variable_scope("rnn_decoder_char", reuse=True):
+            emb_inputs, _ = self.encoder.prepare_decoder_input(self.encoder_inputs[:-1, :])
+            self.outputs, _ = \
+                tf.nn.dynamic_rnn(self.encoder.cell, emb_inputs,
+                                  sequence_length=self.seq_len,
+                                  dtype=tf.float32, time_major=True)
+            self.outputs = tf.reshape(self.outputs, [-1, self.encoder.cell.output_size])
+        self.losses = LossUtils.cross_entropy_loss(
             self.outputs, self.targets, self.seq_len)
 
-        # Gradients and parameter updation for training the model.
-        trainable_vars = tf.trainable_variables()
-        total_params = 0
-        print ("\nShared parameters:\n")
-        for var in trainable_vars:
-            print (("{0}: {1}").format(var.name, var.get_shape()))
-            var_params = 1
-            for dim in var.get_shape().as_list():
-                var_params *= dim
-            total_params += var_params
 
-        # Initialize optimizer
-        opt = tf.train.AdamOptimizer(self.learning_rate)
-
-        # Get gradients from loss
-        gradients = tf.gradients(self.loss, trainable_vars)
-        # Gradient clipping
-        clipped_gradients, _ = tf.clip_by_global_norm(gradients,
-                                                         params.max_gradient_norm)
-        # Apply gradients
-        self.updates = opt.apply_gradients(
-            zip(clipped_gradients, trainable_vars),
-            global_step=self.global_step)
