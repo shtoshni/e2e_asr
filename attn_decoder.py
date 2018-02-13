@@ -98,7 +98,7 @@ class AttnDecoder(Decoder):
 
 
                 if cell_output is None:
-                    next_state = self.cell.zero_state(batch_size, dtype=tf.float32)  #initial_state
+                    next_state = self.cell.zero_state(batch_size, dtype=tf.float32)
                     output = None
                     loop_state = tuple([attn, alpha])
                     next_input = inputs_ta.read(time)
@@ -121,7 +121,6 @@ class AttnDecoder(Decoder):
 
 
                     if not params.isTraining:
-                        print ("Eval model")
                         simple_input = loop_function(output)
                     else:
                         if loop_function is not None:

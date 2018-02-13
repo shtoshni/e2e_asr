@@ -73,7 +73,9 @@ def parse_options():
     parser.add_argument("-max_out", "--max_output", default=120, type=int, help="Maximum length of output sequence")
 
     parser.add_argument("-avg", "--avg", default=False, action="store_true", help="Average the loss")
-    parser.add_argument("-num_files", "--num_files", default=0, type=int, help="Num files")
+    parser.add_argument("-steps_per_checkpoint", "--steps_per_checkpoint", default=500,
+                        type=int, help="Gradient steps per checkpoint")
+    parser.add_argument("-min_epochs", "--min_epochs", default=5, type=int, help="Min epochs BEFORE DECREASING LEARNING RATE")
     parser.add_argument("-max_epochs", "--max_epochs", default=30, type=int, help="Max epochs")
     parser.add_argument("-eval", "--eval_dev", default=False, action="store_true", help="Get dev set results using the last saved model")
     parser.add_argument("-test", "--test", default=False, action="store_true", help="Get test results using the last saved model")
@@ -83,7 +85,6 @@ def parse_options():
     arg_dict = vars(args)
 
     arg_dict['tasks'] = parse_tasks(arg_dict['tasks'])
-    arg_dict['steps_per_checkpoint'] = 100
 
     skip_string = ""
     if arg_dict['skip_step'] != 1:
@@ -241,8 +242,10 @@ def train():
             sys.stdout.flush()
 
 
-            train_set = SpeechDataset(FLAGS.dataset_params, "train*0.*.", isTraining=True)
-            dev_set = SpeechDataset(FLAGS.dataset_params, "dev*0.*.", isTraining=False)
+            #train_set = SpeechDataset(FLAGS.dataset_params, "train*0.*.", isTraining=True)
+            #dev_set = SpeechDataset(FLAGS.dataset_params, "dev*0.*.", isTraining=False)
+            train_set = SpeechDataset(FLAGS.dataset_params, "train", isTraining=True)
+            dev_set = SpeechDataset(FLAGS.dataset_params, "dev", isTraining=False)
 
             with tf.variable_scope("model", reuse=None):
                 model, steps_done = create_model(sess, True, FLAGS.num_layers, train_set)
@@ -272,8 +275,7 @@ def train():
             # This is the training loop.
             epc_time, ckpt_time, loss = 0.0, 0.0, 0.0
             current_step = 0
-            previous_losses = []
-
+            previous_errs = []
 
             while epoch <= FLAGS.max_epochs:
                 print("Epochs done: %d" %epoch)
@@ -317,11 +319,13 @@ def train():
                             err_summary = get_summary(asr_err_cur, "ASR Error")
                             train_writer.add_summary(err_summary, current_step)
 
-                            if (len(previous_losses) > 0 and loss > previous_losses[-1]):
+                            if (epoch >= FLAGS.min_epochs and asr_err_cur > max(previous_errs[-3:])):
+                                # Training has already happened for min epochs and the dev
+                                # error is getting worse w.r.t. the worst value in previous 3 checkpoints
                                 if model.learning_rate.eval() > 1e-4:
                                     sess.run(model.learning_rate_decay_op)
                                     print ("Learning rate decreased !!")
-                            previous_losses.append(loss)
+                            previous_errs.append(loss)
 
                             # Early stopping
                             if asr_err_best > asr_err_cur:

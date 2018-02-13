@@ -31,7 +31,7 @@ class Seq2SeqModel(object):
 
         # Optimization params
         params['learning_rate'] = 1e-3
-        params['learning_rate_decay_factor'] = 0.9
+        params['learning_rate_decay_factor'] = 0.5
         params['max_gradient_norm'] = 5.0
 
         # Loss params

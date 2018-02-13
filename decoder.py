@@ -39,7 +39,7 @@ class Decoder(object):
         params['vocab_size'] = 1000
         params['samp_prob'] = 0.1
         params['max_output'] = 400
-        params['use_lstm'] = True
+        params['use_lstm'] = False
 
         return params
 
@@ -76,7 +76,6 @@ class Decoder(object):
         # Use the OutputProjectionWrapper to project cell output to output
         # vocab size. This projection is fine for a small vocabulary output
         # but would be bad for large vocabulary output spaces.
-        #if params.vocab_size < params.hidden_size:
         cell = rnn_cell.OutputProjectionWrapper(cell, params.vocab_size)
         return cell
 
