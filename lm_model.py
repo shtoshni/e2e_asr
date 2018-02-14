@@ -27,6 +27,7 @@ class LMModel(object):
         params['learning_rate'] = 1e-3
         params['learning_rate_decay_factor'] = 0.5
         params['max_gradient_norm'] = 5.0
+        params['same_as_attn'] = True
 
         return params
 
@@ -83,16 +84,18 @@ class LMModel(object):
 
         self.targets, self.target_weights =\
             tf_utils.create_shifted_targets(self.encoder_inputs, self.seq_len)
-        #self.outputs = self.encoder(self.encoder_inputs, self.seq_len)
+        if self.params.same_as_attn:
+            self.outputs = self.encoder(self.encoder_inputs, self.seq_len)
         # Create computational graph
         # First encode input
-        with tf.variable_scope("rnn_decoder_char", reuse=True):
-            emb_inputs, _ = self.encoder.prepare_decoder_input(self.encoder_inputs[:-1, :])
-            self.outputs, _ = \
-                tf.nn.dynamic_rnn(self.encoder.cell, emb_inputs,
-                                  sequence_length=self.seq_len,
-                                  dtype=tf.float32, time_major=True)
-            self.outputs = tf.reshape(self.outputs, [-1, self.encoder.cell.output_size])
+        else:
+            with tf.variable_scope("rnn_decoder_char", reuse=True):
+                emb_inputs, _ = self.encoder.prepare_decoder_input(self.encoder_inputs[:-1, :])
+                self.outputs, _ = \
+                    tf.nn.dynamic_rnn(self.encoder.cell, emb_inputs,
+                                      sequence_length=self.seq_len,
+                                      dtype=tf.float32, time_major=True)
+                self.outputs = tf.reshape(self.outputs, [-1, self.encoder.cell.output_size])
         self.losses = LossUtils.cross_entropy_loss(
             self.outputs, self.targets, self.seq_len)
 

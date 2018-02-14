@@ -18,29 +18,32 @@ class Encoder(object):
     def class_params(cls):
         """Decoder class parameters."""
         params = Bunch()
-        params['isTraining'] = True
         params['out_prob'] = 0.9
         params['hidden_size'] = 256
         params['bi_dir'] = True
         params['skip_step'] = 2  # Pyramidal architecture
         params['initial_res_fac'] = 1
+        params['use_lstm'] = False
 
         return params
 
-    def __init__(self, params=None):
+    def __init__(self, params=None, isTraining=True):
         """Initializer for encoder class."""
         if params is not None:
             self.params = params
         else:
             self.params = self.class_params()
         params = self.params
+        self.isTraining = isTraining
 
     def get_cell(self):
         """Get cell with the parameter configuration."""
         params = self.params
-        #cell = tf.nn.rnn_cell.BasicLSTMCell(params.hidden_size)
-        cell = tf.nn.rnn_cell.GRUCell(params.hidden_size)
-        if params.isTraining:
+        if params.use_lstm:
+            cell = tf.nn.rnn_cell.BasicLSTMCell(params.hidden_size)
+        else:
+            cell = tf.nn.rnn_cell.GRUCell(params.hidden_size)
+        if self.isTraining:
             # During training we use a dropout wrapper
             cell = tf.nn.rnn_cell.DropoutWrapper(
                 cell, output_keep_prob=params.out_prob)

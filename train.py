@@ -47,26 +47,28 @@ def parse_tasks(task_string):
 def parse_options():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("-hsize", "--hidden_size", default=256, type=int, help="Hidden layer size")
+    # Encoder params
+    parser.add_argument("-hsize", "--hidden_size", default=256, type=int,
+                        help="Hidden layer size")
+    parser.add_argument("-skip_step", "--skip_step", default=1, type=int,
+                        help="Frame skipping factor as we go up the stacked layers")
+    parser.add_argument("-init_res_fac", "--initial_res_fac", default=1, type=int,
+                        help="Initial resolution factor")
     parser.add_argument("-hsize_decoder", "--hidden_size_decoder", default=256, type=int, help="Hidden layer size")
     parser.add_argument("-nlp", "--num_layers_phone", default=3, type=int, help="Number of layers to decode side")
     parser.add_argument("-nlc", "--num_layers_char", default=4, type=int, help="Number of layers to decode side")
 
+
+    parser.add_argument("-vocab_dir", "--vocab_dir", default="/scratch2/asr_multi/data/lang/vocab", type=str, help="Vocab directory")
     parser.add_argument("-tvp", "--target_vocab_file_phone", default="phone.vocab", type=str, help="Vocab file for phone target")
     parser.add_argument("-tvc", "--target_vocab_file_char", default="char.vocab", type=str, help="Vocab file for character target")
 
-    parser.add_argument("-vocab_dir", "--vocab_dir", default="/scratch2/asr_multi/data/lang/vocab", type=str, help="Vocab directory")
-    #parser.add_argument("-data_dir", "--data_dir", default="/share/data/speech/shtoshni/research/asr_multi/data/ctc_data", type=str, help="Data directory")
-    #parser.add_argument("-tb_dir", "--train_base_dir", default="/share/data/speech/shtoshni/research/asr_multi/models", type=str, help="Training directory")
-    #parser.add_argument("-bm_dir", "--best_model_dir", default="/share/data/speech/shtoshni/research/asr_multi/models/best_models", type=str, help="Training directory")
-    #parser.add_argument("-data_dir", "--data_dir", default="/scratch/asr_multi/data/ctc_data", type=str, help="Data directory")
     parser.add_argument("-data_dir", "--data_dir", default="/scratch2/asr_multi/data/tfrecords", type=str, help="Data directory")
     parser.add_argument("-lm_data_dir", "--lm_data_dir", default="/scratch2/asr_multi/data/tfrecords/fisher/red_0.7", type=str, help="Data directory")
     parser.add_argument("-tb_dir", "--train_base_dir", default="/scratch2/asr_multi/models", type=str, help="Training directory")
     parser.add_argument("-bm_dir", "--best_model_dir", default="/scratch2/asr_multi/models/best_models", type=str, help="Training directory")
     parser.add_argument("-tasks", "--tasks", default="", type=str, help="Auxiliary task choices")
 
-    parser.add_argument("-skip_step", "--skip_step", default=1, type=int, help="Frame skipping factor as we go up the stacked layers")
 
     parser.add_argument("-out_prob", "--output_keep_prob", default=0.9, type=float, help="Output keep probability for dropout")
     parser.add_argument("-base_pyramid", "--base_pyramid", default=False, action="store_true", help="Do pyramid at feature level as well?")
@@ -250,7 +252,7 @@ def train():
 
             #train_set = SpeechDataset(FLAGS.dataset_params, "train", isTraining=True)
             #buck_batch_size = [128, 128, 64, 32, 16]
-            buck_batch_size = [128, 64, 64, 32, 16]
+            buck_batch_size = [128, 64, 64]#, 32, 16]
             buck_train_sets = []
             for batch_id, batch_size in enumerate(buck_batch_size):
                 dataset_params = copy.deepcopy(FLAGS.dataset_params)
