@@ -62,7 +62,6 @@ class LMModel(object):
         for var in tf.trainable_variables():
             if "decoder_char" in var.name:
                 trainable_vars.append(var)
-                print (var.name)
 
         # Initialize optimizer
         opt = tf.train.AdamOptimizer(self.learning_rate, name='AdamLM')

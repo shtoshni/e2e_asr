@@ -29,6 +29,7 @@ class Seq2SeqModel(object):
         # Task specification
         params['tasks'] = ['char']
         params['num_layers'] = {'char':1}
+        params['max_output'] = 120
 
         # Optimization params
         params['learning_rate'] = 1e-3
@@ -72,14 +73,15 @@ class Seq2SeqModel(object):
 
         # Model saver function
         self.merged = tf.summary.merge_all()
-        self.saver = tf.train.Saver(tf.global_variables(), max_to_keep=2)
-        self.best_saver = tf.train.Saver(tf.global_variables(), max_to_keep=2)
+
+        #self.saver = tf.train.Saver(tf.global_variables(), max_to_keep=2)
+        #self.best_saver = tf.train.Saver(tf.global_variables(), max_to_keep=2)
 
     def create_computational_graph(self):
         """Creates the computational graph."""
         params = self.params
         self.encoder_inputs, self.decoder_inputs, self.seq_len, \
-            self.seq_len_target = self.data_iter.get_batch()
+            self.seq_len_target = self.get_batch(self.data_iter.get_next())
 
         self.targets = {}
         self.target_weights = {}
@@ -143,3 +145,19 @@ class Seq2SeqModel(object):
             self.updates = opt.apply_gradients(
                 zip(clipped_gradients, trainable_vars),
                 global_step=self.global_step)
+
+    def get_batch(self, batch):
+        """Get a batch from the iterator."""
+        encoder_inputs = batch["logmel"]
+        encoder_len = batch["logmel_len"]
+
+        decoder_inputs = {}
+        decoder_len = {}
+        for task in ["char", "phone"]:
+            decoder_inputs[task] = tf.transpose(batch[task], [1, 0])
+            decoder_len[task] = batch[task + "_len"]
+            if not self.params.isTraining:
+                decoder_len[task] = tf.ones_like(decoder_len[task]) *\
+                    self.params.max_output
+
+        return [encoder_inputs, decoder_inputs, encoder_len, decoder_len]
