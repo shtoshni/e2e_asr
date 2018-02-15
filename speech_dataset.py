@@ -7,7 +7,7 @@ class SpeechDataset(object):
     """Dataset class for speech datasets."""
 
     def __init__(self, params, data_files, isTraining):
-        self.params = params  # batch_size, max_output, feat_length
+        self.params = params  # batch_size, feat_length
         self.is_training = isTraining
         self.data_set, self.data_iter = self.create_iterator(data_files)
 

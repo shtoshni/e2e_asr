@@ -10,17 +10,18 @@ from __future__ import print_function
 
 from bunch import Bunch
 import tensorflow as tf
+from base_params import BaseParams
 
-class Encoder(object):
+class Encoder(BaseParams):
     """Encoder class that encodes input sequence."""
 
     @classmethod
     def class_params(cls):
         """Decoder class parameters."""
         params = Bunch()
-        params['out_prob'] = 0.9
-        params['hidden_size'] = 256
         params['bi_dir'] = True
+        params['hidden_size'] = 256
+        params['out_prob'] = 0.9
         params['skip_step'] = 2  # Pyramidal architecture
         params['initial_res_fac'] = 1
         params['use_lstm'] = False
@@ -170,3 +171,20 @@ class Encoder(object):
                     encoder_input = encoder_output
 
             return attention_states, time_major_states, seq_len_inps
+
+    @classmethod
+    def add_parse_options(cls, parser):
+        # Common encoder-decoder params
+        parser.add_argument("-out_prob", "--out_prob", default=0.9, type=float,
+                            help="Output keep probability for dropout")
+        parser.add_argument("-use_lstm", "--use_lstm", default=False, action="store_true",
+                            help="Use LSTM or GRU")
+        parser.add_argument("-hsize", "--hidden_size", default=256, type=int,
+                            help="Hidden layer size")
+
+        # Encoder params
+        parser.add_argument("-skip_step", "--skip_step", default=2, type=int,
+                            help="Frame skipping factor as we go up the stacked layers")
+        parser.add_argument("-init_res_fac", "--initial_res_fac", default=1, type=int,
+                            help="Initial resolution factor")
+

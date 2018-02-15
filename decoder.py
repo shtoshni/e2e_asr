@@ -23,15 +23,16 @@ from tensorflow.contrib.rnn.python.ops.core_rnn_cell import _Linear
 from tensorflow.contrib.cudnn_rnn import CudnnLSTMSaveable as CudnnLSTM
 import tensorflow as tf
 
+from base_params import BaseParams
 
-class Decoder(object):
+
+class Decoder(BaseParams):
     """Base class for decoder in encoder-decoder framework."""
 
     @classmethod
     def class_params(cls):
         """Decoder class parameters."""
         params = Bunch()
-        params['isTraining'] = True
         params['out_prob'] = 0.9
         params['hidden_size'] = 256
         params['num_layers'] = 1
@@ -43,7 +44,7 @@ class Decoder(object):
 
         return params
 
-    def __init__(self, params=None):
+    def __init__(self, isTraining=True, params=None):
         """The initializer for decoder class.
 
         Args:
@@ -54,8 +55,9 @@ class Decoder(object):
         else:
             self.params = params
         params = self.params
+        self.isTraining = isTraining
 
-        if params.isTraining and (params.samp_prob > 0.0):
+        if self.isTraining and (params.samp_prob > 0.0):
             self.params.isSampling = True
 
     def get_cell(self):
@@ -65,7 +67,7 @@ class Decoder(object):
             cell = rnn_cell.BasicLSTMCell(params.hidden_size)
         else:
             cell = rnn_cell.GRUCell(params.hidden_size)
-        if params.isTraining:
+        if self.isTraining:
             # During training we use a dropout wrapper
             cell = rnn_cell.DropoutWrapper(
                 cell, output_keep_prob=params.out_prob)
@@ -97,7 +99,7 @@ class Decoder(object):
                 initializer=tf.random_uniform_initializer(-1.0, 1.0))
             # Embed the decoder input via embedding lookup operation
             embedded_inp = tf.nn.embedding_lookup(embedding, decoder_inputs)
-        if params.isTraining:
+        if self.isTraining:
             if params.isSampling:
                 # This loop function samples the output from the posterior
                 # and embeds this output.

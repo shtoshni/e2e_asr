@@ -17,19 +17,22 @@ import tensorflow as tf
 import tf_utils
 import data_utils
 from losses import LossUtils
+from base_params import BaseParams
+
+from encoder import Encoder
+from attn_decoder import AttnDecoder
 
 
-class Seq2SeqModel(object):
+class Seq2SeqModel(BaseParams):
     """Implements the Attention-Enabled Encoder-Decoder model."""
 
     @classmethod
     def class_params(cls):
         params = Bunch()
-        params['isTraining'] = True
         # Task specification
         params['tasks'] = ['char']
-        params['num_layers'] = {'char':1}
-        params['max_output'] = 120
+        params['num_layers'] = {'char': 4}
+        params['max_output'] = {'char': 120}
 
         # Optimization params
         params['learning_rate'] = 1e-3
@@ -39,9 +42,12 @@ class Seq2SeqModel(object):
         # Loss params
         params['avg'] = True
 
+        params['encoder_params'] = Encoder.class_params()
+        params['decoder_params'] = {'char': AttnDecoder.class_params()}
+
         return params
 
-    def __init__(self, encoder, decoder, data_iter, params=None):
+    def __init__(self, data_iter, isTraining=True, params=None):
         """Initializer of class that defines the computational graph.
 
         Args:
@@ -52,8 +58,18 @@ class Seq2SeqModel(object):
             self.params = self.class_params()
         else:
             self.params = params
+        params = self.params
 
+        self.encoder = Encoder(isTraining=isTraining,
+                               params=params.encoder_params)
+        self.decoder = {}
+        for task in params.tasks:
+            self.decoder[task] = AttnDecoder(isTraining=isTraining,
+                                             params=params.decoder_params[task],
+                                             scope=task)
         self.data_iter = data_iter
+
+        self.isTraining = isTraining
 
         self.learning_rate = tf.Variable(float(params.learning_rate),
                                          trainable=False)
@@ -66,16 +82,8 @@ class Seq2SeqModel(object):
         self.epoch = tf.Variable(0, trainable=False)
         self.epoch_incr = self.epoch.assign(self.epoch + 1)
 
-        self.encoder = encoder
-        self.decoder = decoder
 
         self.create_computational_graph()
-
-        # Model saver function
-        self.merged = tf.summary.merge_all()
-
-        #self.saver = tf.train.Saver(tf.global_variables(), max_to_keep=2)
-        #self.best_saver = tf.train.Saver(tf.global_variables(), max_to_keep=2)
 
     def create_computational_graph(self):
         """Creates the computational graph."""
@@ -104,7 +112,7 @@ class Seq2SeqModel(object):
                 self.decoder_inputs[task], self.seq_len_target[task],
                 self.encoder_hidden_states[task_depth], self.seq_len_encs[task_depth])
 
-        if params.isTraining:
+        if self.isTraining:
             self.losses = {}
             for task in params.tasks:
                 task_depth = params.num_layers[task]
@@ -145,6 +153,8 @@ class Seq2SeqModel(object):
             self.updates = opt.apply_gradients(
                 zip(clipped_gradients, trainable_vars),
                 global_step=self.global_step)
+            # Summary merger
+            self.merged = tf.summary.merge_all()
 
     def get_batch(self, batch):
         """Get a batch from the iterator."""
@@ -153,11 +163,27 @@ class Seq2SeqModel(object):
 
         decoder_inputs = {}
         decoder_len = {}
-        for task in ["char", "phone"]:
+        for task in self.params.tasks:
             decoder_inputs[task] = tf.transpose(batch[task], [1, 0])
             decoder_len[task] = batch[task + "_len"]
-            if not self.params.isTraining:
+            if not self.isTraining:
                 decoder_len[task] = tf.ones_like(decoder_len[task]) *\
-                    self.params.max_output
+                    self.params.max_output[task]
 
         return [encoder_inputs, decoder_inputs, encoder_len, decoder_len]
+
+    @classmethod
+    def add_parse_options(cls, parser):
+        # Seq2Seq params
+        parser.add_argument("-tasks", "--tasks", default="", type=str,
+                            help="Auxiliary task choices")
+        parser.add_argument("-nlc", "--num_layers_char", default=4, type=int,
+                            help="Output layer of encoder which is used for char.")
+        parser.add_argument("-nlp", "--num_layers_phone", default=3, type=int,
+                            help="Output layer of encoder which is used for phone.")
+        parser.add_argument("-max_out_char", "--max_output_char", default=120,
+                            type=int, help="Maximum length of char/word-piece sequence")
+        parser.add_argument("-max_out_phone", "--max_output_phone", default=250,
+                            type=int, help="Maximum length of phone sequence")
+        parser.add_argument("-avg", "--avg", default=False, action="store_true",
+                            help="Average the loss")

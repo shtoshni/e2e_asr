@@ -17,9 +17,10 @@ from tensorflow.python.ops import rnn
 from tensorflow.python.ops import variable_scope
 from tensorflow.contrib.rnn.python.ops.core_rnn_cell import _linear
 from decoder import Decoder
+from base_params import BaseParams
 
 
-class AttnDecoder(Decoder):
+class AttnDecoder(Decoder, BaseParams):
     """Implements the attention decoder of encoder-decoder framework."""
 
     @classmethod
@@ -29,9 +30,9 @@ class AttnDecoder(Decoder):
         params['attention_vec_size'] = 64
         return params
 
-    def __init__(self, params=None, scope=None):
+    def __init__(self, isTraining, params=None, scope=None):
         """Initializer."""
-        super(AttnDecoder, self).__init__(params)
+        super(AttnDecoder, self).__init__(isTraining=isTraining, params=params)
         # No output projection required in attention decoder
         self.scope = scope
         self.cell = self.get_cell()
@@ -120,7 +121,7 @@ class AttnDecoder(Decoder):
                                              self.cell.output_size, True)
 
 
-                    if not params.isTraining:
+                    if not self.isTraining:
                         simple_input = loop_function(output)
                     else:
                         if loop_function is not None:
@@ -156,3 +157,15 @@ class AttnDecoder(Decoder):
         outputs = outputs.concat()
 
         return outputs
+
+    @staticmethod
+    def add_parse_options(parser):
+        """Add decoder specific arguments."""
+        # Decoder params
+        parser.add_argument("-samp_prob", "--samp_prob", default=0.1, type=float,
+                            help="Scheduled sampling probability")
+        parser.add_argument("-emb_size", "--embedding_size", default=256, type=int,
+                            help="Embedding size")
+        parser.add_argument("-attn_vec_size", "--attention_vec_size", default=64,
+                            type=int, help="Attention vector size")
+

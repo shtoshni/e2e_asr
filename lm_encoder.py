@@ -17,9 +17,10 @@ from tensorflow.python.ops import rnn
 from tensorflow.python.ops import variable_scope
 from tensorflow.contrib.rnn.python.ops.core_rnn_cell import _linear
 from decoder import Decoder
+from base_params import BaseParams
 
 
-class LM(Decoder):
+class LMEncoder(Decoder, BaseParams):
     """Implements the LM model using decoder params."""
 
     @classmethod
@@ -29,18 +30,21 @@ class LM(Decoder):
         params['encoder_hidden_size'] = 256
         return params
 
-    def __init__(self, params=None, scope=None):
+    def __init__(self, params=None):
         """Initializer."""
-        super(LM, self).__init__(params)
+        if params is None:
+            self.params = self.class_params()
+        else:
+            self.params = params
+        self.isTraining = False
         # No output projection required in attention decoder
-        self.scope = scope
         self.cell = self.get_cell()
 
     def __call__(self, decoder_inp, seq_len):
         # First prepare the decoder input - Embed the input and obtain the
         # relevant loop function
         params = self.params
-        scope = "rnn_decoder" + ("" if self.scope is None else "_" + self.scope)
+        scope = "rnn_decoder_char"
 
         with variable_scope.variable_scope(scope, reuse=True):
             decoder_inputs, loop_function = self.prepare_decoder_input(decoder_inp)
@@ -54,6 +58,7 @@ class LM(Decoder):
         emb_size = decoder_inputs.get_shape()[2].value
 
         batch_attn_size = array_ops.stack([batch_size, params.encoder_hidden_size])
+        print ("Hidden size: %d" %params.encoder_hidden_size)
         zero_attn = array_ops.zeros(batch_attn_size, dtype=dtypes.float32)
 
         with variable_scope.variable_scope(scope, reuse=True):
@@ -80,7 +85,7 @@ class LM(Decoder):
 
 
                     if loop_function is not None:
-                        print("Scheduled Sampling will be done")
+                        print("Scheduled Sampling will be done for LM")
                         random_prob = tf.random_uniform([])
                         simple_input = tf.cond(finished,
                             lambda: tf.zeros([batch_size, emb_size], dtype=tf.float32),

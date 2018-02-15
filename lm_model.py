@@ -14,9 +14,10 @@ import tensorflow as tf
 
 import tf_utils
 from losses import LossUtils
+from base_params import BaseParams
 
 
-class LMModel(object):
+class LMModel(BaseParams):
     """Language model."""
 
     @classmethod
@@ -27,7 +28,7 @@ class LMModel(object):
         params['learning_rate'] = 1e-3
         params['learning_rate_decay_factor'] = 0.5
         params['max_gradient_norm'] = 5.0
-        params['same_as_attn'] = True
+        params['simple_lm'] = False
 
         return params
 
@@ -41,6 +42,7 @@ class LMModel(object):
             self.params = self.class_params()
         else:
             self.params = params
+        params = self.params
 
         self.data_iter = data_iter
 
@@ -84,11 +86,9 @@ class LMModel(object):
 
         self.targets, self.target_weights =\
             tf_utils.create_shifted_targets(self.encoder_inputs, self.seq_len)
-        if self.params.same_as_attn:
-            self.outputs = self.encoder(self.encoder_inputs, self.seq_len)
         # Create computational graph
         # First encode input
-        else:
+        if not self.params.simple_lm:
             with tf.variable_scope("rnn_decoder_char", reuse=True):
                 emb_inputs, _ = self.encoder.prepare_decoder_input(self.encoder_inputs[:-1, :])
                 self.outputs, _ = \
@@ -96,7 +96,14 @@ class LMModel(object):
                                       sequence_length=self.seq_len,
                                       dtype=tf.float32, time_major=True)
                 self.outputs = tf.reshape(self.outputs, [-1, self.encoder.cell.output_size])
+        else:
+            self.outputs = self.encoder(self.encoder_inputs, self.seq_len)
         self.losses = LossUtils.cross_entropy_loss(
             self.outputs, self.targets, self.seq_len)
 
 
+    @classmethod
+    def add_parse_options(cls, parser):
+        # LM params
+        parser.add_argument("-simple_lm", "--simple", default=False, action="store_true",
+                            help="Whether simple LM should be used or the attn ZEROED variant")
