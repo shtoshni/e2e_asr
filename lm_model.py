@@ -82,13 +82,13 @@ class LMModel(BaseParams):
     def create_computational_graph(self):
         """Creates the computational graph."""
         params = self.params
-        self.encoder_inputs, self.seq_len = self.data_iter.get_batch()
+        self.encoder_inputs, self.seq_len = self.get_batch()
 
         self.targets, self.target_weights =\
             tf_utils.create_shifted_targets(self.encoder_inputs, self.seq_len)
         # Create computational graph
         # First encode input
-        if not self.params.simple_lm:
+        if self.params.simple_lm:
             with tf.variable_scope("rnn_decoder_char", reuse=True):
                 emb_inputs, _ = self.encoder.prepare_decoder_input(self.encoder_inputs[:-1, :])
                 self.outputs, _ = \
@@ -101,6 +101,14 @@ class LMModel(BaseParams):
         self.losses = LossUtils.cross_entropy_loss(
             self.outputs, self.targets, self.seq_len)
 
+    def get_batch(self):
+        """Get a batch from the iterator."""
+        batch = self.data_iter.get_next()
+        # (T + 1) * B - encoder_len would take care of not processing (T+1)th symbol
+        encoder_inputs = tf.transpose(batch["char"], [1, 0])
+        encoder_len = batch["char_len"]
+
+        return [encoder_inputs, encoder_len]
 
     @classmethod
     def add_parse_options(cls, parser):

@@ -138,6 +138,7 @@ class Train(BaseParams):
 
                 lm_files = glob.glob(os.path.join(params.lm_data_dir, "lm*"))
                 print ("Total LM files: %d" %len(lm_files))
+                sys.stdout.flush()
                 lm_set = LMDataset(lm_files, params.batch_size)
 
                 with tf.variable_scope("model", reuse=None):
@@ -148,6 +149,7 @@ class Train(BaseParams):
 
                 with tf.variable_scope("model", reuse=None):
                     print ("Creating LM model")
+                    sys.stdout.flush()
                     lm_params = copy.deepcopy(
                         model_params.decoder_params['char'])
                     lm_params.encoder_hidden_size =\
@@ -178,6 +180,7 @@ class Train(BaseParams):
                             asr_err_best = 1
 
                 print ("\nBest ASR error rate - %f" %asr_err_best)
+                sys.stdout.flush()
 
                 # This is the training loop.
                 epc_time, loss = 0.0, 0.0
@@ -211,6 +214,7 @@ class Train(BaseParams):
                                 if lm_steps % params.steps_per_checkpoint == 0:
                                     perplexity = math.exp(lm_loss) if lm_loss < 300 else float('inf')
                                     print ("LM steps: %d, Perplexity: %f" %(lm_steps, perplexity))
+                                    sys.stdout.flush()
                                     lm_loss = 0.0
                             except tf.errors.OutOfRangeError:
                                 # Run the LM initializer
@@ -218,11 +222,8 @@ class Train(BaseParams):
                         else:
                             cur_handle = random.choice(active_handle_list)
                             try:
-                                output_feed = [#model.decoder_inputs,
-                                               model.updates,  model.losses]
+                                output_feed = [model.updates,  model.losses]
 
-                                #dec_inps, _, step_loss = sess.run(output_feed)
-                                #print (dec_inps["char"].shape)
                                 _, step_loss = sess.run(output_feed, feed_dict={handle: cur_handle})
                                 step_loss = step_loss["char"]
 
@@ -237,6 +238,7 @@ class Train(BaseParams):
                                     print ("Step %d Learning rate %.4f Checkpoint time %.2f Perplexity "
                                            "%.2f" % (model.global_step.eval(), model.learning_rate.eval(),
                                                      ckpt_time, perplexity))
+                                    sys.stdout.flush()
 
                                     decode_start_time = time.time()
                                     asr_err_cur = self.eval_model.asr_decode(sess)
@@ -244,6 +246,7 @@ class Train(BaseParams):
 
                                     print ("ASR error: %.4f, Decoding time: %s"
                                            %(asr_err_cur, timedelta(seconds=decode_end_time)))
+                                    sys.stdout.flush()
 
                                     err_summary = tf_utils.get_summary(asr_err_cur, "ASR Error")
                                     train_writer.add_summary(err_summary, current_step)
@@ -254,6 +257,7 @@ class Train(BaseParams):
                                         if model.learning_rate.eval() > 1e-4:
                                             sess.run(model.learning_rate_decay_op)
                                             print ("Learning rate decreased !!")
+                                            sys.stdout.flush()
                                     previous_errs.append(loss)
 
                                     # Early stopping
@@ -262,6 +266,7 @@ class Train(BaseParams):
                                         # Save model
                                         print("Best ASR Error rate: %.4f" % asr_err_best)
                                         print("Saving the best model !!")
+                                        sys.stdout.flush()
 
                                         # Save the best score
                                         f = open(os.path.join(params.train_dir, "best.txt"), "w")
