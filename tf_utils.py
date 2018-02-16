@@ -11,3 +11,5 @@ def create_shifted_targets(dec_input, seq_len):
 
     return targets, target_weights
 
+def get_summary(value, tag):
+    return tf.Summary(value=[tf.Summary.Value(tag=tag, simple_value=value)])

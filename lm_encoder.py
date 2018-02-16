@@ -58,7 +58,6 @@ class LMEncoder(Decoder, BaseParams):
         emb_size = decoder_inputs.get_shape()[2].value
 
         batch_attn_size = array_ops.stack([batch_size, params.encoder_hidden_size])
-        print ("Hidden size: %d" %params.encoder_hidden_size)
         zero_attn = array_ops.zeros(batch_attn_size, dtype=dtypes.float32)
 
         with variable_scope.variable_scope(scope, reuse=True):

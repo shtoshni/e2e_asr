@@ -1,9 +1,9 @@
-"""Class for working with speech datasets."""
+"""Class for working with Language modeling datasets."""
 
 import tensorflow as tf
 
 class LMDataset(object):
-    """Dataset class for language model dataset."""
+    """Dataset class for language model dataset via TFRecords."""
 
     def __init__(self, filenames, batch_size):
         self.batch_size = batch_size
@@ -38,16 +38,3 @@ class LMDataset(object):
             self.batch_size, padded_shapes={'char': [None], 'char_len':[]})
 
         self.data_iter = data_set.make_initializable_iterator()
-
-    def initialize_iterator(self):
-        """Return data iterator."""
-        return self.data_iter.initializer
-
-    def get_batch(self):
-        """Get a batch from the iterator."""
-        batch = self.data_iter.get_next()
-        # (T + 1) * B - encoder_len would take care of not processing (T+1)th symbol
-        encoder_inputs = tf.transpose(batch["char"], [1, 0])
-        encoder_len = batch["char_len"]
-
-        return [encoder_inputs, encoder_len]
