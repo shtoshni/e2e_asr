@@ -68,6 +68,8 @@ def process_args(options):
 
         train_dir = (skip_string +
                      num_layer_string +
+                     ('lstm_' if options['use_lstm'] else '') +
+                     ('lm_prob_' + str(options['lm_prob']) + '_') +
                      'run_id_' + str(options['run_id']) +
                      ('_avg_' if options['avg'] else '')
         )
