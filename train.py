@@ -305,15 +305,17 @@ class Train(BaseParams):
         parser.add_argument("-lm_prob", default=0.5, type=float,
                             help="Prob. of running the LM task")
         parser.add_argument("-run_id", "--run_id", default=0, type=int, help="Run ID")
-        parser.add_argument("-data_dir", default="/scratch2/asr_multi/data/tfrecords",
+        parser.add_argument("-data_dir", default="/share/data/speech/shtoshni/"
+                            "research/datasets/asr_swbd/tfrecords", type=str,
+                            help="Data directory")
+        parser.add_argument("-lm_data_dir", default="/share/data/speech/shtoshni/"
+                            "research/datasets/asr_swbd/tfrecords/fisher/red_0.7",
                             type=str, help="Data directory")
-        parser.add_argument("-lm_data_dir",
-                            default="/scratch2/asr_multi/data/tfrecords/fisher/red_0.7",
-                            type=str, help="Data directory")
-        parser.add_argument("-vocab_dir", "--vocab_dir",
-                            default="/scratch2/asr_multi/data/lang/vocab",
+        parser.add_argument("-vocab_dir", "--vocab_dir", default="/share/data/speech/"
+                            "shtoshni/research/datasets/asr_swbd/lang/vocab",
                             type=str, help="Vocab directory")
-        parser.add_argument("--train_base_dir", default="/scratch2/asr_multi/models",
+        parser.add_argument("-tb_dir", "--train_base_dir",
+                            default="/share/data/speech/shtoshni/research/asr_multi/models",
                             type=str, help="Training directory")
         parser.add_argument("-feat_len", "--feat_length", default=80, type=int,
                             help="Number of features per frame")
