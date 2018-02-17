@@ -61,7 +61,10 @@ def process_args(options):
         """Get train directory name given the options."""
         num_layer_string = ""
         for task in options['tasks']:
-            option_val = options['num_layers_' + task]
+            if task == "char":
+                continue
+            num_layer_string += options['num_layers_' + task]
+
         skip_string = ""
         if options['skip_step'] != 1:
             skip_string = "skip_" + str(options['skip_step']) + "_"
