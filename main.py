@@ -63,7 +63,7 @@ def process_args(options):
         for task in options['tasks']:
             if task == "char":
                 continue
-            num_layer_string += options['num_layers_' + task]
+            num_layer_string += task + "_" + str(options['num_layers_' + task]) + "_"
 
         skip_string = ""
         if options['skip_step'] != 1:
