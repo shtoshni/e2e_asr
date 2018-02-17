@@ -29,7 +29,7 @@ class Eval(BaseParams):
     @classmethod
     def class_params(cls):
         params = Bunch()
-        params['train_dir'] = "/scratch"
+        params['best_model_dir'] = "/scratch"
         params['vocab_dir'] = "/share/data/speech/shtoshni/research/datasets/asr_swbd/lang/vocab"
         return params
 
@@ -54,9 +54,9 @@ class Eval(BaseParams):
 
         rev_normalizer = swbd_utils.reverse_swbd_normalizer()
 
-        gold_asr_file = os.path.join(params.train_dir, 'gold_asr.txt')
-        decoded_asr_file = os.path.join(params.train_dir, 'decoded_asr.txt')
-        raw_asr_file = os.path.join(params.train_dir, 'raw_asr.txt')
+        gold_asr_file = path.join(params.best_model_dir, 'gold_asr.txt')
+        decoded_asr_file = path.join(params.best_model_dir, 'decoded_asr.txt')
+        raw_asr_file = path.join(params.best_model_dir, 'raw_asr.txt')
 
         total_errors, total_words = 0, 0
         # Initialize the dev iterator
@@ -105,6 +105,7 @@ class Eval(BaseParams):
         except ZeroDivisionError:
             score = 0.0
 
+        print ("Output at: %s" %str(raw_asr_file))
         return score
 
     @staticmethod
