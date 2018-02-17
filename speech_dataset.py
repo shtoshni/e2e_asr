@@ -31,7 +31,7 @@ class SpeechDataset(object):
             sequence_features=sequence_features
         )
         # unpack segment ID
-        # segmentID = context["segment"]
+        segment = context["segment"]
 
         logmel = sequence["logmel"]
         cint = sequence["cint"]
@@ -43,7 +43,7 @@ class SpeechDataset(object):
 
         return {"logmel": logmel, "char": cint, "phone":pint,
                 "logmel_len": logmel_len, "char_len": cint_len,
-                "phone_len": pint_len}
+                "phone_len": pint_len, "utt_id": segment}
 
     def create_iterator(self, data_files):
         """Create iterator for data."""
@@ -54,7 +54,8 @@ class SpeechDataset(object):
         data_set = data_set.padded_batch(
             self.params.batch_size, padded_shapes={'logmel': [None, self.params.feat_length],
                                                    'char': [None], 'phone': [None],
-                                                   'logmel_len':[], 'char_len':[], 'phone_len':[]})
+                                                   'logmel_len':[], 'char_len':[], 'phone_len':[],
+                                                   'utt_id': []})
 
         data_iter = data_set.make_initializable_iterator()
         return data_set, data_iter

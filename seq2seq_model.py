@@ -170,6 +170,8 @@ class Seq2SeqModel(BaseParams):
                 decoder_len[task] = tf.ones_like(decoder_len[task]) *\
                     self.params.max_output[task]
 
+        if not self.isTraining:
+            decoder_inputs["utt_id"] = batch["utt_id"]
         return [encoder_inputs, decoder_inputs, encoder_len, decoder_len]
 
     @classmethod

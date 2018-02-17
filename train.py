@@ -42,7 +42,7 @@ class Train(BaseParams):
         params['batch_size'] = 64
         params['buck_batch_size'] = [128, 128, 64, 64, 32]
         params['max_epochs'] = 30
-        params['min_epochs'] = 5
+        params['min_steps'] = 20000
         params['feat_length'] = 80
 
         # Data directories
@@ -157,6 +157,7 @@ class Train(BaseParams):
                     lm_model = LMModel(LMEncoder(lm_params), lm_set.data_iter)
 
                 model_saver = tf.train.Saver(tf.global_variables(), max_to_keep=2)
+                best_model_saver = tf.train.Saver(tf.global_variables(), max_to_keep=2)
                 ckpt = tf.train.get_checkpoint_state(params.train_dir)
                 if not ckpt:
                     sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
@@ -164,7 +165,6 @@ class Train(BaseParams):
                     tf.train.Saver().restore(sess, ckpt.model_checkpoint_path)
                 # Prepare training data
                 epoch = model.epoch.eval()
-                epochs_left = params.max_epochs - epoch
 
                 train_writer = tf.summary.FileWriter(params.train_dir +
                                                      '/train', tf.get_default_graph())
@@ -251,7 +251,7 @@ class Train(BaseParams):
                                     err_summary = tf_utils.get_summary(asr_err_cur, "ASR Error")
                                     train_writer.add_summary(err_summary, current_step)
 
-                                    if (epoch >= params.min_epochs and asr_err_cur > max(previous_errs[-3:])):
+                                    if (model.global_step.eval() >= params.min_steps and asr_err_cur > max(previous_errs[-3:])):
                                         # Training has already happened for min epochs and the dev
                                         # error is getting worse w.r.t. the worst value in previous 3 checkpoints
                                         if model.learning_rate.eval() > 1e-4:
@@ -275,7 +275,8 @@ class Train(BaseParams):
 
                                         # Save the model in best model directory
                                         checkpoint_path = os.path.join(params.best_model_dir, "asr.ckpt")
-                                        model_saver.save(sess, checkpoint_path, global_step=model.global_step, write_meta_graph=False)
+                                        best_model_saver.save(sess, checkpoint_path, global_step=model.global_step,
+                                                              write_meta_graph=False)
 
                                     # Also save the model for plotting
                                     checkpoint_path = os.path.join(params.train_dir, "asr.ckpt")
@@ -313,13 +314,13 @@ class Train(BaseParams):
         parser.add_argument("-vocab_dir", "--vocab_dir",
                             default="/scratch2/asr_multi/data/lang/vocab",
                             type=str, help="Vocab directory")
-        parser.add_argument("--train_base_dir", default="/scratch2/asr_multi/models",
+        parser.add_argument("-tb_dir", "--train_base_dir", default="/scratch2/asr_multi/models",
                             type=str, help="Training directory")
         parser.add_argument("-feat_len", "--feat_length", default=80, type=int,
                             help="Number of features per frame")
         parser.add_argument("-steps_per_checkpoint", default=500,
                             type=int, help="Gradient steps per checkpoint")
-        parser.add_argument("-min_epochs", "--min_epochs", default=5, type=int,
+        parser.add_argument("-min_steps", "--min_steps", default=20000, type=int,
                             help="Min epochs BEFORE DECREASING LEARNING RATE")
 
 

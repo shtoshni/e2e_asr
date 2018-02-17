@@ -158,14 +158,14 @@ def launch_eval(options):
     with tf.Session() as sess:
         trainer = Train(options.seq2seq_params, options.train_params)
         if options.eval_dev:
-            _, eval_set = trainer.get_data_sets()
+            _, dev_set = trainer.get_data_sets()
         else:
             dataset_params = Bunch()
             dataset_params.batch_size = options.train_params.batch_size
             dataset_params.feat_length = options.train_params.feat_length
 
-            test_files = glob.glob(path.join(options.train_params.data_dir, "test*"))
-            print ("Total dev files: %d" %len(test_files))
+            test_files = glob.glob(path.join(options.train_params.data_dir, "eval2000*"))
+            print ("Total test files: %d" %len(test_files))
             dev_set = SpeechDataset(dataset_params, test_files,
                                     isTraining=False)
         trainer.create_eval_model(dev_set, standalone=True)
