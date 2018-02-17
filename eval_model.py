@@ -29,7 +29,7 @@ class Eval(BaseParams):
     @classmethod
     def class_params(cls):
         params = Bunch()
-        params['train_dir'] = "/scratch"
+        params['best_model_dir'] = "/scratch"
         params['vocab_dir'] = "/share/data/speech/shtoshni/research/datasets/asr_swbd/lang/vocab"
         return params
 
@@ -54,9 +54,9 @@ class Eval(BaseParams):
 
         rev_normalizer = swbd_utils.reverse_swbd_normalizer()
 
-        gold_asr_file = os.path.join(params.train_dir, 'gold_asr.txt')
-        decoded_asr_file = os.path.join(params.train_dir, 'decoded_asr.txt')
-        raw_asr_file = os.path.join(params.train_dir, 'raw_asr.txt')
+        gold_asr_file = path.join(params.best_model_dir, 'gold_asr.txt')
+        decoded_asr_file = path.join(params.best_model_dir, 'decoded_asr.txt')
+        raw_asr_file = path.join(params.best_model_dir, 'raw_asr.txt')
 
         total_errors, total_words = 0, 0
         # Initialize the dev iterator
@@ -66,10 +66,12 @@ class Eval(BaseParams):
                 open(decoded_asr_file, 'w') as proc_dec_f:
             while True:
                 try:
-                    output_feed = [self.model.decoder_inputs["char"],
+                    output_feed = [self.model.decoder_inputs["utt_id"],
+                                   self.model.decoder_inputs["char"],
                                    self.model.outputs["char"]]
 
-                    gold_ids, output_logits = sess.run(output_feed)
+                    utt_ids, gold_ids, output_logits = sess.run(output_feed)
+
                     gold_ids = np.array(gold_ids[1:, :]).T
                     batch_size = gold_ids.shape[0]
 
@@ -89,9 +91,12 @@ class Eval(BaseParams):
                         total_errors += ed.eval(gold_words, decoded_words)
                         total_words += len(gold_words)
 
-                        gold_f.write('{}\n'.format(' '.join(gold_words)))
-                        raw_dec_f.write('{}\n'.format(' '.join(raw_asr_words)))
-                        proc_dec_f.write('{}\n'.format(' '.join(decoded_words)))
+                        gold_f.write(utt_ids[sent_id] + '\t' +
+                                     '{}\n'.format(' '.join(gold_words)))
+                        raw_dec_f.write(utt_ids[sent_id] + '\t' +
+                                        '{}\n'.format(' '.join(raw_asr_words)))
+                        proc_dec_f.write(utt_ids[sent_id] + '\t' +
+                                         '{}\n'.format(' '.join(decoded_words)))
 
                 except tf.errors.OutOfRangeError:
                     break
@@ -100,6 +105,7 @@ class Eval(BaseParams):
         except ZeroDivisionError:
             score = 0.0
 
+        print ("Output at: %s" %str(raw_asr_file))
         return score
 
     @staticmethod
