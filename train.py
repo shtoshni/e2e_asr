@@ -108,7 +108,7 @@ class Train(BaseParams):
                                      params=dev_seq2seq_params)
 
             params = Bunch()
-            params.train_dir = self.params.train_dir
+            params.best_model_dir = self.params.best_model_dir
             params.vocab_dir = self.params.vocab_dir
 
             self.eval_model = Eval(model_dev, params=params)
