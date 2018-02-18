@@ -122,7 +122,8 @@ def process_args(options):
     seq2seq_params.encoder_params = encoder_params
     seq2seq_params.decoder_params = decoder_params
 
-
+    lm_params = LMModel.get_updated_params(options)
+    train_params.lm_params = lm_params
 
     if not options['test'] and not options['eval_dev']:
         if not os.path.exists(options['train_dir']):

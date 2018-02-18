@@ -89,6 +89,7 @@ class LMModel(BaseParams):
         # Create computational graph
         # First encode input
         if self.params.simple_lm:
+            print ("Using a simple LM model")
             with tf.variable_scope("rnn_decoder_char", reuse=True):
                 emb_inputs, _ = self.encoder.prepare_decoder_input(self.encoder_inputs[:-1, :])
                 self.outputs, _ = \
@@ -113,5 +114,5 @@ class LMModel(BaseParams):
     @classmethod
     def add_parse_options(cls, parser):
         # LM params
-        parser.add_argument("-simple_lm", "--simple", default=False, action="store_true",
+        parser.add_argument("-simple_lm", default=False, action="store_true",
                             help="Whether simple LM should be used or the attn ZEROED variant")

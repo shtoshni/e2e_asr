@@ -42,7 +42,7 @@ class Train(BaseParams):
         params['batch_size'] = 64
         params['buck_batch_size'] = [128, 128, 64, 64, 32]
         params['max_epochs'] = 30
-        params['min_epochs'] = 5
+        params['min_steps'] = 20000
         params['feat_length'] = 80
 
         # Data directories
@@ -56,6 +56,7 @@ class Train(BaseParams):
         params['best_model_dir'] = "/scratch"
 
         params['lm_prob'] = 0.5
+        params['lm_params'] = LMModel.class_params()
 
         params['run_id'] = 1
         params['steps_per_checkpoint'] = 500
@@ -154,7 +155,8 @@ class Train(BaseParams):
                         model_params.decoder_params['char'])
                     lm_params.encoder_hidden_size =\
                         2 * model_params.encoder_params.hidden_size
-                    lm_model = LMModel(LMEncoder(lm_params), lm_set.data_iter)
+                    lm_model = LMModel(LMEncoder(lm_params), lm_set.data_iter,
+                                       params=params.lm_params)
 
                 model_saver = tf.train.Saver(tf.global_variables(), max_to_keep=2)
                 ckpt = tf.train.get_checkpoint_state(params.train_dir)
@@ -163,7 +165,7 @@ class Train(BaseParams):
                 else:
                     tf.train.Saver().restore(sess, ckpt.model_checkpoint_path)
                 # Prepare training data
-                epoch = model.epoch.eval()
+                epoch = model.global_step.eval()/3006
                 epochs_left = params.max_epochs - epoch
 
                 train_writer = tf.summary.FileWriter(params.train_dir +
@@ -251,13 +253,14 @@ class Train(BaseParams):
                                     err_summary = tf_utils.get_summary(asr_err_cur, "ASR Error")
                                     train_writer.add_summary(err_summary, current_step)
 
-                                    if (epoch >= params.min_epochs and asr_err_cur > max(previous_errs[-3:])):
-                                        # Training has already happened for min epochs and the dev
-                                        # error is getting worse w.r.t. the worst value in previous 3 checkpoints
-                                        if model.learning_rate.eval() > 1e-4:
-                                            sess.run(model.learning_rate_decay_op)
-                                            print ("Learning rate decreased !!")
-                                            sys.stdout.flush()
+                                    if model.global_step.eval() >= params.min_steps:
+                                        if len(previous_errs) > 2 and asr_err_cur > max(previous_errs[-2:]):
+                                            # Training has already happened for min epochs and the dev
+                                            # error is getting worse w.r.t. the worst value in previous 3 checkpoints
+                                            if model.learning_rate.eval() > 1e-4:
+                                                sess.run(model.learning_rate_decay_op)
+                                                print ("Learning rate decreased !!")
+                                                sys.stdout.flush()
                                     previous_errs.append(loss)
 
                                     # Early stopping
@@ -305,23 +308,22 @@ class Train(BaseParams):
         parser.add_argument("-lm_prob", default=0.5, type=float,
                             help="Prob. of running the LM task")
         parser.add_argument("-run_id", "--run_id", default=0, type=int, help="Run ID")
-        parser.add_argument("-data_dir", default="/share/data/speech/shtoshni/"
-                            "research/datasets/asr_swbd/tfrecords", type=str,
-                            help="Data directory")
-        parser.add_argument("-lm_data_dir", default="/share/data/speech/shtoshni/"
-                            "research/datasets/asr_swbd/tfrecords/fisher/red_0.7",
+        parser.add_argument("-data_dir", default="/scratch2/asr_multi/data/tfrecords",
+                            type=str, help="Data directory")
+        parser.add_argument("-lm_data_dir",
+                            default="/scratch2/asr_multi/data/tfrecords/fisher/red_0.7",
                             type=str, help="Data directory")
         parser.add_argument("-vocab_dir", "--vocab_dir", default="/share/data/speech/"
                             "shtoshni/research/datasets/asr_swbd/lang/vocab",
                             type=str, help="Vocab directory")
         parser.add_argument("-tb_dir", "--train_base_dir",
-                            default="/share/data/speech/shtoshni/research/asr_multi/models",
+                            default="/scratch2/asr_multi/models",
                             type=str, help="Training directory")
         parser.add_argument("-feat_len", "--feat_length", default=80, type=int,
                             help="Number of features per frame")
         parser.add_argument("-steps_per_checkpoint", default=500,
                             type=int, help="Gradient steps per checkpoint")
-        parser.add_argument("-min_epochs", "--min_epochs", default=5, type=int,
-                            help="Min epochs BEFORE DECREASING LEARNING RATE")
+        parser.add_argument("-min_steps", "--min_steps", default=20000, type=int,
+                            help="Min steps BEFORE DECREASING LEARNING RATE")
 
 
