@@ -279,7 +279,7 @@ class Train(BaseParams):
                                     train_writer.add_summary(err_summary, model.global_step.eval())
 
                                     if model.global_step.eval() >= params.min_steps:
-                                        if len(previous_errs) > 1 and asr_err_cur > max(previous_errs[-1:]):
+                                        if len(previous_errs) > 3 and asr_err_cur > max(previous_errs[-3:]):
                                             # Training has already happened for min epochs and the dev
                                             # error is getting worse w.r.t. the worst value in previous 3 checkpoints
                                             if model.learning_rate.eval() > 1e-4:
