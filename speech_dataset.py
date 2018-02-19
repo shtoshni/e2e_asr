@@ -1,6 +1,5 @@
 """Class for working with speech datasets."""
 
-import glob
 import tensorflow as tf
 
 class SpeechDataset(object):

@@ -137,10 +137,6 @@ class Train(BaseParams):
                     iter_init_list.append(train_set.data_iter)
                     iter_handle_list.append(sess.run(train_set.data_iter.string_handle()))
 
-                lm_files = glob.glob(os.path.join(params.lm_data_dir, "lm*"))
-                print ("Total LM files: %d" %len(lm_files))
-                sys.stdout.flush()
-                lm_set = LMDataset(lm_files, params.batch_size)
 
                 with tf.variable_scope("model", reuse=None):
                     model = Seq2SeqModel(iterator, True, model_params)
@@ -148,17 +144,25 @@ class Train(BaseParams):
 
                 self.create_eval_model(dev_set)
 
-                with tf.variable_scope("model", reuse=None):
-                    print ("Creating LM model")
+                if params.lm_prob > 0:
+                    # Create LM dataset
+                    lm_files = glob.glob(os.path.join(params.lm_data_dir, "lm*"))
+                    print ("Total LM files: %d" %len(lm_files))
                     sys.stdout.flush()
-                    lm_params = copy.deepcopy(
-                        model_params.decoder_params['char'])
-                    lm_params.encoder_hidden_size =\
-                        2 * model_params.encoder_params.hidden_size
-                    lm_model = LMModel(LMEncoder(lm_params), lm_set.data_iter,
-                                       params=params.lm_params)
+                    lm_set = LMDataset(lm_files, params.batch_size)
 
-                model_saver = tf.train.Saver(tf.global_variables(), max_to_keep=100)
+                    # Create LM model
+                    with tf.variable_scope("model", reuse=None):
+                        print ("Creating LM model")
+                        sys.stdout.flush()
+                        lm_params = copy.deepcopy(
+                            model_params.decoder_params['char'])
+                        lm_params.encoder_hidden_size =\
+                            2 * model_params.encoder_params.hidden_size
+                        lm_model = LMModel(LMEncoder(lm_params), lm_set.data_iter,
+                                           params=params.lm_params)
+
+                model_saver = tf.train.Saver(tf.global_variables(), max_to_keep=None)
                 best_model_saver = tf.train.Saver(tf.global_variables(), max_to_keep=2)
 
                 ckpt = tf.train.get_checkpoint_state(params.train_dir)
@@ -170,7 +174,7 @@ class Train(BaseParams):
                 epoch = model.global_step.eval()/3000  # The exact number is either 3006 or 3016
 
                 train_writer = tf.summary.FileWriter(params.train_dir +
-                                                     '/train', tf.get_default_graph())
+                                                     '/summary', tf.get_default_graph())
                 asr_err_best = 1.0
                 if ckpt:
                     # Some training has been done
@@ -189,11 +193,20 @@ class Train(BaseParams):
                 epc_time, loss = 0.0, 0.0
                 ckpt_start_time = time.time()
                 current_step = 0
-                lm_steps, lm_loss = 0, 0.0
+                if params.lm_prob > 0:
+                    lm_steps, lm_loss = lm_model.lm_global_step.eval(), 0.0
                 previous_errs = []
+                try:
+                    with open(path.join(params.train_dir, "asr_err.txt"), "r") as err_f:
+                        for line in err_f:
+                            previous_errs.append(float(line.strip()))
+                        print ("Previous perf. log of %d checkpoints loaded" %(len(previous_errs)))
+                except:
+                    pass
 
-                # Run the LM initializer
-                sess.run(lm_set.data_iter.initializer)
+                if params.lm_prob > 0:
+                    # Run the LM initializer
+                    sess.run(lm_set.data_iter.initializer)
 
                 while epoch <= params.max_epochs:
                     print("\nEpochs done: %d" %epoch)
@@ -209,8 +222,7 @@ class Train(BaseParams):
                         #task = random.choice(["lm"])
                         if task == "lm":
                             try:
-                                output_feed = [#lm_model.encoder_inputs, lm_model.seq_len,
-                                               lm_model.updates, lm_model.losses]
+                                output_feed = [lm_model.updates, lm_model.losses]
                                 _, lm_step_loss = sess.run(output_feed)
                                 lm_loss += lm_step_loss/params.steps_per_checkpoint
                                 lm_steps += 1
@@ -250,6 +262,9 @@ class Train(BaseParams):
                                     loss_summary = tf_utils.get_summary(perplexity, "ASR Perplexity")
                                     train_writer.add_summary(loss_summary, model.global_step.eval())
 
+                                    lr_summary = tf_utils.get_summary(model.learning_rate.eval(), "Learning rate")
+                                    train_writer.add_summary(lr_summary, model.global_step.eval())
+
                                     decode_start_time = time.time()
                                     asr_err_cur = self.eval_model.asr_decode(sess)
                                     decode_end_time = time.time() - decode_start_time
@@ -257,6 +272,8 @@ class Train(BaseParams):
                                     print ("ASR error: %.4f, Decoding time: %s"
                                            %(asr_err_cur, timedelta(seconds=decode_end_time)))
                                     sys.stdout.flush()
+                                    with open(path.join(params.train_dir, "asr_err.txt"), "a") as err_f:
+                                        err_f.write(str(asr_err_cur) + "\n")
 
                                     err_summary = tf_utils.get_summary(asr_err_cur, "ASR Error")
                                     train_writer.add_summary(err_summary, model.global_step.eval())

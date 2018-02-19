@@ -52,7 +52,7 @@ class LMModel(BaseParams):
             self.learning_rate * params.learning_rate_decay_factor)
 
         # Number of gradient updates performed
-        self.global_step = tf.Variable(0, trainable=False)
+        self.lm_global_step = tf.Variable(0, trainable=False)
         # Number of epochs done
         self.epoch = tf.Variable(0, trainable=False)
         self.epoch_incr = self.epoch.assign(self.epoch + 1)
@@ -77,7 +77,7 @@ class LMModel(BaseParams):
         # Apply gradients
         self.updates = opt.apply_gradients(
             zip(clipped_gradients, trainable_vars),
-            global_step=self.global_step)
+            global_step=self.lm_global_step)
 
     def create_computational_graph(self):
         """Creates the computational graph."""
