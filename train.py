@@ -158,7 +158,9 @@ class Train(BaseParams):
                     lm_model = LMModel(LMEncoder(lm_params), lm_set.data_iter,
                                        params=params.lm_params)
 
-                model_saver = tf.train.Saver(tf.global_variables(), max_to_keep=2)
+                model_saver = tf.train.Saver(tf.global_variables(), max_to_keep=100)
+                best_model_saver = tf.train.Saver(tf.global_variables(), max_to_keep=2)
+
                 ckpt = tf.train.get_checkpoint_state(params.train_dir)
                 if not ckpt:
                     sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
@@ -254,14 +256,14 @@ class Train(BaseParams):
                                     train_writer.add_summary(err_summary, current_step)
 
                                     if model.global_step.eval() >= params.min_steps:
-                                        if len(previous_errs) > 2 and asr_err_cur > max(previous_errs[-2:]):
+                                        if len(previous_errs) > 1 and asr_err_cur > max(previous_errs[-1:]):
                                             # Training has already happened for min epochs and the dev
                                             # error is getting worse w.r.t. the worst value in previous 3 checkpoints
                                             if model.learning_rate.eval() > 1e-4:
                                                 sess.run(model.learning_rate_decay_op)
                                                 print ("Learning rate decreased !!")
                                                 sys.stdout.flush()
-                                    previous_errs.append(loss)
+                                    previous_errs.append(asr_err_cur)
 
                                     # Early stopping
                                     if asr_err_best > asr_err_cur:
@@ -278,7 +280,7 @@ class Train(BaseParams):
 
                                         # Save the model in best model directory
                                         checkpoint_path = os.path.join(params.best_model_dir, "asr.ckpt")
-                                        model_saver.save(sess, checkpoint_path, global_step=model.global_step, write_meta_graph=False)
+                                        best_model_saver.save(sess, checkpoint_path, global_step=model.global_step, write_meta_graph=False)
 
                                     # Also save the model for plotting
                                     checkpoint_path = os.path.join(params.train_dir, "asr.ckpt")
@@ -323,7 +325,7 @@ class Train(BaseParams):
                             help="Number of features per frame")
         parser.add_argument("-steps_per_checkpoint", default=500,
                             type=int, help="Gradient steps per checkpoint")
-        parser.add_argument("-min_steps", "--min_steps", default=20000, type=int,
+        parser.add_argument("-min_steps", "--min_steps", default=25000, type=int,
                             help="Min steps BEFORE DECREASING LEARNING RATE")
 
 
