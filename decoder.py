@@ -1,4 +1,4 @@
-"""Attention-enabled decoder class of seq2seq model. Doesn't implement actual decoding.
+"""Abstract decoder class for seq2seq model. Doesn't implement actual decoding.
 
 Author: Shubham Toshniwal
 Contact: shtoshni@ttic.edu
@@ -9,19 +9,8 @@ from __future__ import division
 from __future__ import print_function
 
 import abc
-
-from bunch import Bunch
-
-from tensorflow.python.framework import dtypes
-from tensorflow.python.framework import ops
-from tensorflow.python.ops import array_ops
-from tensorflow.python.ops import control_flow_ops
-from tensorflow.python.ops import rnn
-import tensorflow.contrib.rnn as rnn_cell
-from tensorflow.python.ops import variable_scope
-from tensorflow.contrib.rnn.python.ops.core_rnn_cell import _Linear
-from tensorflow.contrib.cudnn_rnn import CudnnLSTMSaveable as CudnnLSTM
 import tensorflow as tf
+from bunch import Bunch
 
 from base_params import BaseParams
 
@@ -64,26 +53,27 @@ class Decoder(BaseParams):
         """Create the LSTM cell used by decoder."""
         params = self.params
         def single_cell():
+            """Create a single RNN cell."""
             if params.use_lstm:
-                cell = rnn_cell.BasicLSTMCell(params.hidden_size)
+                cell = tf.nn.rnn_cell.BasicLSTMCell(params.hidden_size)
             else:
-                cell = rnn_cell.GRUCell(params.hidden_size)
+                cell = tf.nn.rnn_cell.GRUCell(params.hidden_size)
             if self.isTraining:
                 # During training we use a dropout wrapper
-                cell = rnn_cell.DropoutWrapper(
+                cell = tf.nn.rnn_cell.DropoutWrapper(
                     cell, output_keep_prob=params.out_prob)
             return cell
 
         if params.num_layers_dec > 1:
             # If RNN is stacked then we use MultiRNNCell class
-            cell = rnn_cell.MultiRNNCell([single_cell() for _ in xrange(params.num_layers_dec)])
+            cell = tf.nn.rnn_cell.MultiRNNCell([single_cell() for _ in xrange(params.num_layers_dec)])
         else:
             cell = single_cell()
 
         # Use the OutputProjectionWrapper to project cell output to output
         # vocab size. This projection is fine for a small vocabulary output
         # but would be bad for large vocabulary output spaces.
-        cell = rnn_cell.OutputProjectionWrapper(cell, params.vocab_size)
+        cell = tf.contrib.rnn.OutputProjectionWrapper(cell, params.vocab_size)
         return cell
 
     def prepare_decoder_input(self, decoder_inputs):
@@ -97,9 +87,9 @@ class Decoder(BaseParams):
             loop_function: Function for getting next timestep input.
         """
         params = self.params
-        with variable_scope.variable_scope("decoder"):
+        with tf.variable_scope("decoder"):
             # Create an embedding matrix
-            embedding = variable_scope.get_variable(
+            embedding = tf.get_variable(
                 "embedding", [params.vocab_size, params.emb_size],
                 initializer=tf.random_uniform_initializer(-1.0, 1.0))
             # Embed the decoder input via embedding lookup operation
