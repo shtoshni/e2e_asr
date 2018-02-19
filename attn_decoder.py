@@ -1,20 +1,15 @@
+"""Attention-enabled decoder class of seq2seq model.
+
+Author: Shubham Toshniwal
+Contact: shtoshni@ttic.edu
+Date: February, 2018
+"""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
 import tensorflow as tf
-import tensorflow.contrib.rnn as rnn_cell
 
-from tensorflow.python.ops import rnn
-from tensorflow.python.ops import variable_scope
-from tensorflow.python.framework import dtypes
-from tensorflow.python.framework import ops
-from tensorflow.python.ops import array_ops
-from tensorflow.python.ops import control_flow_ops
-from tensorflow.python.ops import embedding_ops
-from tensorflow.python.ops import math_ops
-from tensorflow.python.ops import rnn
-from tensorflow.python.ops import variable_scope
 from tensorflow.contrib.rnn.python.ops.core_rnn_cell import _linear
 from decoder import Decoder
 from base_params import BaseParams
@@ -37,6 +32,16 @@ class AttnDecoder(Decoder, BaseParams):
         self.scope = scope
         self.cell = self.get_cell()
 
+    def get_state(self, state):
+        """Get the state while handling multiple layer and different cell cases."""
+        params = self.params
+        if params.num_layers_dec > 1:
+            state = state[-1]
+        if params.use_lstm:
+            state = state.c
+
+        return state
+
     def __call__(self, decoder_inp, seq_len,
                  encoder_hidden_states, seq_len_inp):
         # First prepare the decoder input - Embed the input and obtain the
@@ -44,7 +49,7 @@ class AttnDecoder(Decoder, BaseParams):
         params = self.params
         scope = "rnn_decoder" + ("" if self.scope is None else "_" + self.scope)
 
-        with variable_scope.variable_scope(scope):
+        with tf.variable_scope(scope):
             decoder_inputs, loop_function = self.prepare_decoder_input(decoder_inp)
 
         # TensorArray is used to do dynamic looping over decoder input
@@ -60,28 +65,28 @@ class AttnDecoder(Decoder, BaseParams):
         # Attention variables
         attn_mask = tf.sequence_mask(tf.cast(seq_len_inp, tf.int32), dtype=tf.float32)
 
-        batch_attn_size = array_ops.stack([batch_size, attn_size])
-        attn = array_ops.zeros(batch_attn_size, dtype=dtypes.float32)
-        batch_alpha_size = array_ops.stack([batch_size, attn_length, 1, 1])
-        alpha = array_ops.zeros(batch_alpha_size, dtype=dtypes.float32)
+        batch_attn_size = tf.stack([batch_size, attn_size])
+        attn = tf.zeros(batch_attn_size, dtype=tf.float32)
+        batch_alpha_size = tf.stack([batch_size, attn_length, 1, 1])
+        alpha = tf.zeros(batch_alpha_size, dtype=tf.float32)
 
-        with variable_scope.variable_scope(scope):
+        with tf.variable_scope(scope):
             # Calculate the W*h_enc component
             hidden = tf.expand_dims(encoder_hidden_states, 2)
-            W_attn = variable_scope.get_variable(
+            W_attn = tf.get_variable(
                 "AttnW", [1, 1, attn_size, params.attention_vec_size])
             hidden_features = tf.nn.conv2d(hidden, W_attn, [1, 1, 1, 1], "SAME")
-            v = variable_scope.get_variable("AttnV", [params.attention_vec_size])
+            v = tf.get_variable("AttnV", [params.attention_vec_size])
 
             def raw_loop_function(time, cell_output, state, loop_state):
                 def attention(query, prev_alpha):
                     """Put attention masks on hidden using hidden_features and query."""
-                    with variable_scope.variable_scope("Attention"):
+                    with tf.variable_scope("Attention"):
                         y = _linear(query, params.attention_vec_size, True)
                         #y = attn_proj(query)
-                        y = array_ops.reshape(y, [-1, 1, 1, params.attention_vec_size])
-                        s = math_ops.reduce_sum(
-                            v * math_ops.tanh(hidden_features + y), [2, 3])
+                        y = tf.reshape(y, [-1, 1, 1, params.attention_vec_size])
+                        s = tf.reduce_sum(
+                            v * tf.tanh(hidden_features + y), [2, 3])
 
                         alpha = tf.nn.softmax(s) * attn_mask
                         sum_vec = tf.reduce_sum(alpha, reduction_indices=[1], keepdims=True)
@@ -90,7 +95,7 @@ class AttnDecoder(Decoder, BaseParams):
 
                         alpha = tf.expand_dims(alpha, 2)
                         alpha = tf.expand_dims(alpha, 3)
-                        context_vec = math_ops.reduce_sum(alpha * hidden, [1, 2])
+                        context_vec = tf.reduce_sum(alpha * hidden, [1, 2])
                     return tuple([context_vec, alpha])
 
                 # If loop_function is set, we use it instead of decoder_inputs.
@@ -106,19 +111,12 @@ class AttnDecoder(Decoder, BaseParams):
                 else:
                     next_state = state
                     #loop_state = attention(cell_output, loop_state[1])
-                    if params.use_lstm:
-                        loop_state = attention(state.c, loop_state[1])
-                    else:
-                        loop_state = attention(state, loop_state[1])
-                    with variable_scope.variable_scope("AttnOutputProjection"):
+                    loop_state = attention(self.get_state(state), loop_state[1])
+                    with tf.variable_scope("AttnOutputProjection"):
                         #output = _linear([cell_output, loop_state[0]],
                         #                 self.cell.output_size, True)
-                        if params.use_lstm:
-                            output = _linear([state.c, loop_state[0]],
-                                             self.cell.output_size, True)
-                        else:
-                            output = _linear([state, loop_state[0]],
-                                             self.cell.output_size, True)
+                        output = _linear([self.get_state(state), loop_state[0]],
+                                         self.params.vocab_size, True)
 
 
                     if not self.isTraining:
@@ -143,14 +141,14 @@ class AttnDecoder(Decoder, BaseParams):
                     input_size = simple_input.get_shape().with_rank(2)[1]
                     if input_size.value is None:
                         raise ValueError("Could not infer input size from input")
-                    with variable_scope.variable_scope("InputProjection"):
+                    with tf.variable_scope("InputProjection"):
                         next_input = _linear([simple_input, loop_state[0]], input_size, True)
 
                 return (elements_finished, next_input, next_state, output, loop_state)
 
             # outputs is a TensorArray with T=max(sequence_length) entries
             # of shape Bx|V|
-            outputs, state, _ = rnn.raw_rnn(self.cell, raw_loop_function)
+            outputs, state, _ = tf.nn.raw_rnn(self.cell, raw_loop_function)
 
         # Concatenate the output across timesteps to get a tensor of TxBx|V|
         # shape
@@ -168,4 +166,6 @@ class AttnDecoder(Decoder, BaseParams):
                             help="Embedding size")
         parser.add_argument("-attn_vec_size", "--attention_vec_size", default=64,
                             type=int, help="Attention vector size")
+        parser.add_argument("-num_layers_dec", "--num_layers_dec", default=1,
+                            type=int, help="Number of RNN layers")
 

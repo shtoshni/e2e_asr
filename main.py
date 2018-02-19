@@ -115,6 +115,9 @@ def process_args(options):
         task_params = copy.deepcopy(decoder_params_base)
         task_params.vocab_size = options['vocab_size'][task]
         task_params.max_output = options['max_output'][task]
+        if task is not "char":
+            # Only make the char model deep
+            task_params.num_layers_dec = 1
 
         decoder_params[task] = task_params
 

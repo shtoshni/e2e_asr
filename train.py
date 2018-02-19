@@ -167,8 +167,7 @@ class Train(BaseParams):
                 else:
                     tf.train.Saver().restore(sess, ckpt.model_checkpoint_path)
                 # Prepare training data
-                epoch = model.global_step.eval()/3006
-                epochs_left = params.max_epochs - epoch
+                epoch = model.global_step.eval()/3000  # The exact number is either 3006 or 3016
 
                 train_writer = tf.summary.FileWriter(params.train_dir +
                                                      '/train', tf.get_default_graph())
@@ -219,6 +218,10 @@ class Train(BaseParams):
                                     perplexity = math.exp(lm_loss) if lm_loss < 300 else float('inf')
                                     print ("LM steps: %d, Perplexity: %f" %(lm_steps, perplexity))
                                     sys.stdout.flush()
+
+                                    lm_summary = tf_utils.get_summary(perplexity, "LM Perplexity")
+                                    train_writer.add_summary(lm_summary, model.global_step.eval())
+
                                     lm_loss = 0.0
                             except tf.errors.OutOfRangeError:
                                 # Run the LM initializer
@@ -244,6 +247,9 @@ class Train(BaseParams):
                                                      ckpt_time, perplexity))
                                     sys.stdout.flush()
 
+                                    loss_summary = tf_utils.get_summary(perplexity, "ASR Perplexity")
+                                    train_writer.add_summary(loss_summary, model.global_step.eval())
+
                                     decode_start_time = time.time()
                                     asr_err_cur = self.eval_model.asr_decode(sess)
                                     decode_end_time = time.time() - decode_start_time
@@ -253,7 +259,7 @@ class Train(BaseParams):
                                     sys.stdout.flush()
 
                                     err_summary = tf_utils.get_summary(asr_err_cur, "ASR Error")
-                                    train_writer.add_summary(err_summary, current_step)
+                                    train_writer.add_summary(err_summary, model.global_step.eval())
 
                                     if model.global_step.eval() >= params.min_steps:
                                         if len(previous_errs) > 1 and asr_err_cur > max(previous_errs[-1:]):

@@ -35,7 +35,7 @@ class Decoder(BaseParams):
         params = Bunch()
         params['out_prob'] = 0.9
         params['hidden_size'] = 256
-        params['num_layers'] = 1
+        params['num_layers_dec'] = 1
         params['emb_size'] = 256
         params['vocab_size'] = 1000
         params['samp_prob'] = 0.1
@@ -63,17 +63,22 @@ class Decoder(BaseParams):
     def get_cell(self):
         """Create the LSTM cell used by decoder."""
         params = self.params
-        if params.use_lstm:
-            cell = rnn_cell.BasicLSTMCell(params.hidden_size)
-        else:
-            cell = rnn_cell.GRUCell(params.hidden_size)
-        if self.isTraining:
-            # During training we use a dropout wrapper
-            cell = rnn_cell.DropoutWrapper(
-                cell, output_keep_prob=params.out_prob)
-        if params.num_layers > 1:
+        def single_cell():
+            if params.use_lstm:
+                cell = rnn_cell.BasicLSTMCell(params.hidden_size)
+            else:
+                cell = rnn_cell.GRUCell(params.hidden_size)
+            if self.isTraining:
+                # During training we use a dropout wrapper
+                cell = rnn_cell.DropoutWrapper(
+                    cell, output_keep_prob=params.out_prob)
+            return cell
+
+        if params.num_layers_dec > 1:
             # If RNN is stacked then we use MultiRNNCell class
-            cell = rnn_cell.MultiRNNCell([cell] * params.num_layers)
+            cell = rnn_cell.MultiRNNCell([single_cell() for _ in xrange(params.num_layers_dec)])
+        else:
+            cell = single_cell()
 
         # Use the OutputProjectionWrapper to project cell output to output
         # vocab size. This projection is fine for a small vocabulary output
