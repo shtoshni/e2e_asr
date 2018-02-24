@@ -5,7 +5,6 @@ from __future__ import division
 
 import math
 import os
-os.environ['TF_CPP_MIN_LOG_LEVEL']='1'
 
 from os import path
 import time
