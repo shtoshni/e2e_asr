@@ -25,6 +25,7 @@ class Encoder(BaseParams):
         params['skip_step'] = 2  # Pyramidal architecture
         params['initial_res_fac'] = 1
         params['use_lstm'] = False
+        params['stack_cons'] = 1
 
         return params
 
@@ -145,6 +146,10 @@ class Encoder(BaseParams):
                 max_depth = max(max_depth, num_layers[task])
 
             resolution_fac = params.initial_res_fac  # Term to maintain time-resolution factor
+            if resolution_fac > 1:
+                encoder_input = encoder_input[:, ::resolution_fac, :]
+                seq_len = tf.to_int64(tf.ceil(
+                    tf.truediv(seq_len, tf.cast(resolution_fac, dtype=tf.int64))))
             for i in xrange(max_depth):
                 layer_depth = i+1
                 # Transpose the input into time major input
@@ -187,4 +192,6 @@ class Encoder(BaseParams):
                             help="Frame skipping factor as we go up the stacked layers")
         parser.add_argument("-init_res_fac", "--initial_res_fac", default=1, type=int,
                             help="Initial resolution factor")
+        parser.add_argument("-stack_cons", default=1, type=int,
+                            help="Stacking consecutive frames in input")
 
