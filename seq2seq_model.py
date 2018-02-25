@@ -187,5 +187,8 @@ class Seq2SeqModel(BaseParams):
                             type=int, help="Maximum length of char/word-piece sequence")
         parser.add_argument("-max_out_phone", "--max_output_phone", default=250,
                             type=int, help="Maximum length of phone sequence")
+        # Optimization params
+        parser.add_argument("-lr_decay", "--learning_rate_decay_factor", default=0.5,
+                            type=float, help="Learning rate decay factor")
         parser.add_argument("-avg", "--avg", default=False, action="store_true",
                             help="Average the loss")

@@ -55,7 +55,7 @@ class Train(BaseParams):
         params['train_dir'] = "/scratch"
         params['best_model_dir'] = "/scratch"
 
-        params['lm_prob'] = 0.5
+        params['lm_prob'] = 0.0  #0.5
         params['lm_params'] = LMModel.class_params()
 
         params['run_id'] = 1
@@ -114,6 +114,13 @@ class Train(BaseParams):
 
             self.eval_model = Eval(model_dev, params=params)
 
+    @staticmethod
+    def check_progess(previous_errs):
+        if len(previous_errs) > 10:
+            if min(previous_errs) != min(previous_errs[-10:]):
+                print ("No improvement in 10 checkpoints")
+                sys.exit()
+
     def train(self):
         """Train a sequence to sequence speech recognizer!"""
         params = self.params
@@ -147,7 +154,8 @@ class Train(BaseParams):
                 if params.lm_prob > 0:
                     # Create LM dataset
                     lm_files = glob.glob(os.path.join(params.lm_data_dir, "lm*"))
-                    print ("Total LM files: %d" %len(lm_files))
+                    random.shuffle(lm_files)
+                    print ("Total SHUFFLED LM files: %d" %len(lm_files))
                     sys.stdout.flush()
                     lm_set = LMDataset(lm_files, params.batch_size)
 
@@ -201,6 +209,7 @@ class Train(BaseParams):
                         for line in err_f:
                             previous_errs.append(float(line.strip()))
                         print ("Previous perf. log of %d checkpoints loaded" %(len(previous_errs)))
+                        self.check_progess(previous_errs)
                 except:
                     pass
 
@@ -288,6 +297,8 @@ class Train(BaseParams):
                                                 sys.stdout.flush()
                                     previous_errs.append(asr_err_cur)
 
+                                    self.check_progess(previous_errs)
+
                                     # Early stopping
                                     if asr_err_best > asr_err_cur:
                                         asr_err_best = asr_err_cur
@@ -330,7 +341,7 @@ class Train(BaseParams):
     @classmethod
     def add_parse_options(cls, parser):
         # Training params
-        parser.add_argument("-lm_prob", default=0.5, type=float,
+        parser.add_argument("-lm_prob", default=0.0, type=float,
                             help="Prob. of running the LM task")
         parser.add_argument("-run_id", "--run_id", default=0, type=int, help="Run ID")
         parser.add_argument("-data_dir", default="/scratch2/asr_multi/data/tfrecords",
