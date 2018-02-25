@@ -42,7 +42,7 @@ class Train(BaseParams):
         params['batch_size'] = 64
         params['buck_batch_size'] = [128, 128, 64, 64, 32]
         params['max_epochs'] = 30
-        params['min_steps'] = 20000
+        params['min_steps'] = 25000
         params['feat_length'] = 80
 
         # Data directories
@@ -115,11 +115,11 @@ class Train(BaseParams):
             self.eval_model = Eval(model_dev, params=params)
 
     @staticmethod
-    def check_progess(previous_errs):
-        if len(previous_errs) > 10:
-            if min(previous_errs) != min(previous_errs[-10:]):
-                print ("No improvement in 10 checkpoints")
-                sys.exit()
+    def check_progess(previous_errs, num=10):
+        if len(previous_errs) > num:
+            if min(previous_errs) != min(previous_errs[-num:]):
+                return False
+        return True
 
     def train(self):
         """Train a sequence to sequence speech recognizer!"""
@@ -209,7 +209,9 @@ class Train(BaseParams):
                         for line in err_f:
                             previous_errs.append(float(line.strip()))
                         print ("Previous perf. log of %d checkpoints loaded" %(len(previous_errs)))
-                        self.check_progess(previous_errs)
+                        if not self.check_progess(previous_errs):
+                            print ("No improvement in 10 checkpoints")
+                            sys.exit()
                 except:
                     pass
 
@@ -287,17 +289,20 @@ class Train(BaseParams):
                                     err_summary = tf_utils.get_summary(asr_err_cur, "ASR Error")
                                     train_writer.add_summary(err_summary, model.global_step.eval())
 
+                                    previous_errs.append(asr_err_cur)
                                     if model.global_step.eval() >= params.min_steps:
-                                        if len(previous_errs) > 3 and asr_err_cur > max(previous_errs[-3:]):
+                                        if not self.check_progess(previous_errs, num=3):
                                             # Training has already happened for min epochs and the dev
                                             # error is getting worse w.r.t. the worst value in previous 3 checkpoints
                                             if model.learning_rate.eval() > 1e-4:
                                                 sess.run(model.learning_rate_decay_op)
                                                 print ("Learning rate decreased !!")
                                                 sys.stdout.flush()
-                                    previous_errs.append(asr_err_cur)
 
-                                    self.check_progess(previous_errs)
+                                    if not self.check_progess(previous_errs):
+                                        print ("No improvement in 10 checkpoints")
+                                        sys.exit()
+
 
                                     # Early stopping
                                     if asr_err_best > asr_err_cur:
