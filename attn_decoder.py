@@ -123,7 +123,6 @@ class AttnDecoder(Decoder, BaseParams):
                         simple_input = loop_function(output)
                     else:
                         if loop_function is not None:
-                            print("Scheduled Sampling will be done")
                             random_prob = tf.random_uniform([])
                             simple_input = tf.cond(finished,
                                 lambda: tf.zeros([batch_size, emb_size], dtype=tf.float32),
