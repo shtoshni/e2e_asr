@@ -168,7 +168,8 @@ class Encoder(BaseParams):
                 seq_len_inps[layer_depth] = seq_len
 
                 # For every character there are rougly 8 frames
-                if params.skip_step > 1 and i != (max_depth-1) and resolution_fac <= 8:
+                if params.skip_step > 1 and i != (max_depth-1) and resolution_fac < 8:
+                    print ("Reducing resolution by a factor of %d" %params.skip_step)
                     encoder_input, seq_len = self._get_pyramid_input(
                         encoder_output, seq_len)
                     resolution_fac *= 2
