@@ -99,6 +99,7 @@ class Decoder(BaseParams):
                 # This loop function samples the output from the posterior
                 # and embeds this output.
                 loop_function = self._sample_argmax(embedding)
+                print ("Scheduled sampling!")
             else:
                 loop_function = None
         else:

@@ -27,11 +27,7 @@ class LMEncoder(Decoder, BaseParams):
 
     def __init__(self, params=None):
         """Initializer."""
-        if params is None:
-            self.params = self.class_params()
-        else:
-            self.params = params
-        self.isTraining = False
+        super(LMEncoder, self).__init__(isTraining=True, params=params)
         # No output projection required in attention decoder
         self.cell = self.get_cell()
 
@@ -84,7 +80,6 @@ class LMEncoder(Decoder, BaseParams):
                                          self.cell.output_size, True)
 
                     if loop_function is not None:
-                        print("Scheduled Sampling will be done for LM")
                         random_prob = tf.random_uniform([])
                         simple_input = tf.cond(
                             finished, lambda: tf.zeros([batch_size, emb_size], dtype=tf.float32),

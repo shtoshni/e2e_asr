@@ -156,8 +156,8 @@ class AttnDecoder(Decoder, BaseParams):
 
         return outputs
 
-    @staticmethod
-    def add_parse_options(parser):
+    @classmethod
+    def add_parse_options(cls, parser):
         """Add decoder specific arguments."""
         # Decoder params
         parser.add_argument("-samp_prob", "--samp_prob", default=0.1, type=float,
