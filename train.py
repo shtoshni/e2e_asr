@@ -211,7 +211,7 @@ class Train(BaseParams):
                         print ("Previous perf. log of %d checkpoints loaded" %(len(previous_errs)))
                         if not self.check_progess(previous_errs):
                             print ("No improvement in 10 checkpoints")
-                            sys.exit()
+                            os._exit(1)
                 except:
                     pass
 
