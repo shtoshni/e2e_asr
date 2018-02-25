@@ -83,7 +83,7 @@ class LMEncoder(Decoder, BaseParams):
                         random_prob = tf.random_uniform([])
                         simple_input = tf.cond(
                             finished, lambda: tf.zeros([batch_size, emb_size], dtype=tf.float32),
-                            lambda: tf.cond(tf.less(random_prob, 0.9),
+                            lambda: tf.cond(tf.less(random_prob, 1 - params.samp_prob),
                                             lambda: inputs_ta.read(time),
                                             lambda: loop_function(output))
                             )
