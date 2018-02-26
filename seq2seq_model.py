@@ -164,15 +164,21 @@ class Seq2SeqModel(BaseParams):
         if self.encoder.params.stack_cons > 1:
             feat_size = encoder_inputs.get_shape()[2].value
             # Remove delta coeffs
-            feat_size_no_del = feat_size // 2
+            #feat_size_no_del = feat_size // 2
 
-            stacking_tens = [encoder_inputs[:, :, :feat_size_no_del]]
+            #stacking_tens = [encoder_inputs[:, :, feat_size_no_del:]]
+            #batch_size = tf.shape(encoder_inputs)[0]
+            #for shift in xrange(1, self.encoder.params.stack_cons):
+            #    shifted_inp = tf.concat([encoder_inputs[:, shift:, feat_size_no_del:],
+            #                            tf.zeros([batch_size, shift, feat_size_no_del])],  1)
+            #    stacking_tens.append(shifted_inp)
+
+            stacking_tens = [encoder_inputs]
             batch_size = tf.shape(encoder_inputs)[0]
             for shift in xrange(1, self.encoder.params.stack_cons):
-                shifted_inp = tf.concat([encoder_inputs[:, shift:, :feat_size_no_del],
-                                        tf.zeros([batch_size, shift, feat_size_no_del])],  1)
+                shifted_inp = tf.concat([encoder_inputs[:, shift:, :],
+                                         tf.zeros([batch_size, shift, feat_size])],  1)
                 stacking_tens.append(shifted_inp)
-            print (len(stacking_tens))
 
             encoder_inputs = tf.concat(stacking_tens, 2)
 

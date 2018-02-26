@@ -22,7 +22,7 @@ class Decoder(BaseParams):
     def class_params(cls):
         """Decoder class parameters."""
         params = Bunch()
-        params['out_prob'] = 0.9
+        params['out_prob_dec'] = 0.9
         params['hidden_size'] = 256
         params['num_layers_dec'] = 1
         params['emb_size'] = 256
@@ -61,7 +61,7 @@ class Decoder(BaseParams):
             if self.isTraining:
                 # During training we use a dropout wrapper
                 cell = tf.nn.rnn_cell.DropoutWrapper(
-                    cell, output_keep_prob=params.out_prob)
+                    cell, output_keep_prob=params.out_prob_dec)
             return cell
 
         if params.num_layers_dec > 1:
@@ -173,3 +173,14 @@ class Decoder(BaseParams):
             return emb_prev
 
         return loop_function
+
+    @classmethod
+    def add_parse_options(cls, parser):
+        """Add decoder specific arguments."""
+        # Decoder params
+        parser.add_argument("-emb_size", "--emb_size", default=256, type=int,
+                            help="Embedding size")
+        parser.add_argument("-num_layers_dec", "--num_layers_dec", default=1,
+                            type=int, help="Number of RNN layers")
+        parser.add_argument("-out_prob_dec", "--out_prob_dec", default=0.9,
+                            type=float, help="1 - dropout_prob")

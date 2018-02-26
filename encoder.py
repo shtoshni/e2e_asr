@@ -26,6 +26,7 @@ class Encoder(BaseParams):
         params['initial_res_fac'] = 1
         params['use_lstm'] = False
         params['stack_cons'] = 1
+        params['max_scaling_down'] = 8
 
         return params
 
@@ -168,7 +169,7 @@ class Encoder(BaseParams):
                 seq_len_inps[layer_depth] = seq_len
 
                 # For every character there are rougly 8 frames
-                if params.skip_step > 1 and i != (max_depth-1) and resolution_fac < 8:
+                if params.skip_step > 1 and i != (max_depth-1) and resolution_fac < params.max_scaling_down:
                     print ("Reducing resolution by a factor of %d" %params.skip_step)
                     encoder_input, seq_len = self._get_pyramid_input(
                         encoder_output, seq_len)
@@ -195,4 +196,6 @@ class Encoder(BaseParams):
                             help="Initial resolution factor")
         parser.add_argument("-stack_cons", default=1, type=int,
                             help="Stacking consecutive frames in input")
+        parser.add_argument("-max_scaling_down", default=8, type=int,
+                            help="Maximum reduction in resolution")
 

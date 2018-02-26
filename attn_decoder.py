@@ -159,12 +159,8 @@ class AttnDecoder(Decoder, BaseParams):
     def add_parse_options(cls, parser):
         """Add decoder specific arguments."""
         # Decoder params
+        super(AttnDecoder, cls).add_parse_options(parser)
         parser.add_argument("-samp_prob", "--samp_prob", default=0.1, type=float,
                             help="Scheduled sampling probability")
-        parser.add_argument("-emb_size", "--embedding_size", default=256, type=int,
-                            help="Embedding size")
         parser.add_argument("-attn_vec_size", "--attention_vec_size", default=64,
                             type=int, help="Attention vector size")
-        parser.add_argument("-num_layers_dec", "--num_layers_dec", default=1,
-                            type=int, help="Number of RNN layers")
-
