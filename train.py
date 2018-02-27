@@ -170,7 +170,7 @@ class Train(BaseParams):
                     # Create LM dataset
                     buck_lm_sets = self.get_lm_sets()
                     lm_handle = tf.placeholder(tf.string, shape=[])
-                    iterator = tf.data.Iterator.from_string_handle(
+                    lm_iterator = tf.data.Iterator.from_string_handle(
                         lm_handle, buck_lm_sets[0].data_set.output_types,
                         buck_lm_sets[0].data_set.output_shapes)
                     iter_lm_list = []
@@ -187,7 +187,7 @@ class Train(BaseParams):
                             model_params.decoder_params['char'])
                         lm_params.encoder_hidden_size =\
                             2 * model_params.encoder_params.hidden_size
-                        lm_model = LMModel(LMEncoder(lm_params), lm_set.data_iter,
+                        lm_model = LMModel(LMEncoder(lm_params), lm_iterator,
                                            params=params.lm_params)
 
                 model_saver = tf.train.Saver(tf.global_variables(), max_to_keep=None)
