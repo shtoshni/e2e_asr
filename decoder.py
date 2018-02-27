@@ -46,9 +46,6 @@ class Decoder(BaseParams):
         params = self.params
         self.isTraining = isTraining
 
-        if self.isTraining and (params.samp_prob > 0.0):
-            self.params.isSampling = True
-
     def get_cell(self):
         """Create the LSTM cell used by decoder."""
         params = self.params
@@ -95,7 +92,7 @@ class Decoder(BaseParams):
             # Embed the decoder input via embedding lookup operation
             embedded_inp = tf.nn.embedding_lookup(embedding, decoder_inputs)
         if self.isTraining:
-            if params.isSampling:
+            if params.samp_prob > 0:
                 # This loop function samples the output from the posterior
                 # and embeds this output.
                 loop_function = self._sample_argmax(embedding)

@@ -39,7 +39,8 @@ class Train(BaseParams):
     def class_params(cls):
         params = Bunch()
 
-        params['batch_size'] = 64
+        params['batch_size'] = 128
+        params['lm_buck_batch_size'] = [256, 256, 128, 128, 64]
         params['buck_batch_size'] = [128, 128, 64, 64, 32]
         params['max_epochs'] = 30
         params['min_steps'] = 25000
@@ -98,6 +99,20 @@ class Train(BaseParams):
                                 isTraining=False)
         return buck_train_sets, dev_set
 
+    def get_lm_sets(self):
+        params = self.params
+        buck_lm_sets = []
+        total_lm_files = 0
+
+        for batch_id, batch_size in enumerate(params.lm_buck_batch_size):
+            buck_lm_files = glob.glob(path.join(
+                params.lm_data_dir, "lm" + str(batch_id) + ".*"))
+            total_lm_files += len(buck_lm_files)
+            buck_lm_set = LMDataset(buck_lm_files, batch_size)
+            buck_lm_sets.append(buck_lm_set)
+        print ("Total LM files: %d" %total_lm_files)
+
+        return buck_lm_sets
 
     def create_eval_model(self, dev_set, standalone=False):
         with tf.variable_scope("model", reuse=(True if not standalone else None)):
@@ -153,11 +168,16 @@ class Train(BaseParams):
 
                 if params.lm_prob > 0:
                     # Create LM dataset
-                    lm_files = glob.glob(os.path.join(params.lm_data_dir, "lm*"))
-                    random.shuffle(lm_files)
-                    print ("Total SHUFFLED LM files: %d" %len(lm_files))
-                    sys.stdout.flush()
-                    lm_set = LMDataset(lm_files, params.batch_size)
+                    buck_lm_sets = self.get_lm_sets()
+                    lm_handle = tf.placeholder(tf.string, shape=[])
+                    iterator = tf.data.Iterator.from_string_handle(
+                        lm_handle, buck_lm_sets[0].data_set.output_types,
+                        buck_lm_sets[0].data_set.output_shapes)
+                    iter_lm_list = []
+                    iter_lm_handle_list = []
+                    for lm_set in buck_lm_sets:
+                        iter_lm_list.append(lm_set.data_iter)
+                        iter_lm_handle_list.append(sess.run(lm_set.data_iter.string_handle()))
 
                     # Create LM model
                     with tf.variable_scope("model", reuse=None):
@@ -192,7 +212,7 @@ class Train(BaseParams):
                         try:
                             asr_err_best = float(open(score_file).readline().strip("\n"))
                         except ValueError:
-                            asr_err_best = 1
+                            pass
 
                 print ("\nBest ASR error rate - %f" %asr_err_best)
                 sys.stdout.flush()
@@ -202,7 +222,7 @@ class Train(BaseParams):
                 ckpt_start_time = time.time()
                 current_step = 0
                 if params.lm_prob > 0:
-                    lm_steps, lm_loss = lm_model.lm_global_step.eval(), 0.0
+                    lm_steps, lm_loss = 0, 0.0
                 previous_errs = []
                 try:
                     with open(path.join(params.train_dir, "asr_err.txt"), "r") as err_f:
@@ -217,7 +237,9 @@ class Train(BaseParams):
 
                 if params.lm_prob > 0:
                     # Run the LM initializer
-                    sess.run(lm_set.data_iter.initializer)
+                    for iter_lm in iter_lm_list:
+                        sess.run(iter_lm.initializer)
+                    active_lm_handle_list = copy.deepcopy(iter_lm_handle_list)
 
                 while epoch <= params.max_epochs:
                     print("\nEpochs done: %d" %epoch)
@@ -232,9 +254,10 @@ class Train(BaseParams):
                         task = ("lm" if (params.lm_prob > random.random()) else "asr")
                         #task = random.choice(["lm"])
                         if task == "lm":
+                            cur_lm_handle = random.choice(active_lm_handle_list)
                             try:
                                 output_feed = [lm_model.updates, lm_model.losses]
-                                _, lm_step_loss = sess.run(output_feed)
+                                _, lm_step_loss = sess.run(output_feed, feed_dict={lm_handle: cur_lm_handle})
                                 lm_loss += lm_step_loss/params.steps_per_checkpoint
                                 lm_steps += 1
                                 if lm_steps % params.steps_per_checkpoint == 0:
@@ -248,7 +271,13 @@ class Train(BaseParams):
                                     lm_loss = 0.0
                             except tf.errors.OutOfRangeError:
                                 # Run the LM initializer
-                                sess.run(lm_set.data_iter.initializer)
+                                active_lm_handle_list.remove(cur_lm_handle)
+                                if not active_lm_handle_list:
+                                    print ("LM epoch done!")
+                                    for iter_lm in iter_lm_list:
+                                        sess.run(iter_lm.initializer)
+                                    active_lm_handle_list = copy.deepcopy(iter_lm_handle_list)
+
                         else:
                             cur_handle = random.choice(active_handle_list)
                             try:
@@ -291,7 +320,7 @@ class Train(BaseParams):
 
                                     previous_errs.append(asr_err_cur)
                                     if model.global_step.eval() >= params.min_steps:
-                                        if not self.check_progess(previous_errs, num=3):
+                                        if not self.check_progess(previous_errs, num=6):
                                             # Training has already happened for min epochs and the dev
                                             # error is getting worse w.r.t. the worst value in previous 3 checkpoints
                                             if model.learning_rate.eval() > 1e-4:
@@ -352,7 +381,7 @@ class Train(BaseParams):
         parser.add_argument("-data_dir", default="/scratch2/asr_multi/data/tfrecords",
                             type=str, help="Data directory")
         parser.add_argument("-lm_data_dir",
-                            default="/scratch2/asr_multi/data/tfrecords/fisher/red_0.7",
+                            default="/scratch2/asr_multi/data/tfrecords/lm_all",
                             type=str, help="Data directory")
         parser.add_argument("-vocab_dir", "--vocab_dir", default="/share/data/speech/"
                             "shtoshni/research/datasets/asr_swbd/lang/vocab",

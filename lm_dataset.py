@@ -7,7 +7,7 @@ class LMDataset(object):
 
     def __init__(self, filenames, batch_size):
         self.batch_size = batch_size
-        self.create_iterator(filenames)
+        self.data_set, self.data_iter = self.create_iterator(filenames)
 
     def get_instance(self, proto):
         """Parse the proto to prepare instance."""
@@ -33,8 +33,9 @@ class LMDataset(object):
         """Create iterator for data."""
         data_set = tf.data.TFRecordDataset(data_files)
         data_set = data_set.map(self.get_instance)
-        data_set = data_set.shuffle(buffer_size=10000)
+        data_set = data_set.shuffle(buffer_size=5000)
         data_set = data_set.padded_batch(
             self.batch_size, padded_shapes={'char': [None], 'char_len':[]})
 
-        self.data_iter = data_set.make_initializable_iterator()
+        data_iter = data_set.make_initializable_iterator()
+        return data_set, data_iter
