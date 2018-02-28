@@ -8,14 +8,11 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import numpy as np
-import random
 from bunch import Bunch
 
 import tensorflow as tf
 
 import tf_utils
-import data_utils
 from losses import LossUtils
 from base_params import BaseParams
 
@@ -30,9 +27,9 @@ class Seq2SeqModel(BaseParams):
     def class_params(cls):
         params = Bunch()
         # Task specification
-        params['tasks'] = ['char']
-        params['num_layers'] = {'char': 4}
-        params['max_output'] = {'char': 120}
+        params['tasks'] = ['phone']
+        params['num_layers'] = {'phone': 4}
+        params['max_output'] = {'phone': 250}
 
         # Optimization params
         params['learning_rate'] = 1e-3
@@ -43,7 +40,7 @@ class Seq2SeqModel(BaseParams):
         params['avg'] = True
 
         params['encoder_params'] = Encoder.class_params()
-        params['decoder_params'] = {'char': AttnDecoder.class_params()}
+        params['decoder_params'] = {'phone': AttnDecoder.class_params()}
 
         return params
 
@@ -201,12 +198,8 @@ class Seq2SeqModel(BaseParams):
         # Seq2Seq params
         parser.add_argument("-tasks", "--tasks", default="", type=str,
                             help="Auxiliary task choices")
-        parser.add_argument("-nlc", "--num_layers_char", default=4, type=int,
-                            help="Output layer of encoder which is used for char.")
         parser.add_argument("-nlp", "--num_layers_phone", default=3, type=int,
                             help="Output layer of encoder which is used for phone.")
-        parser.add_argument("-max_out_char", "--max_output_char", default=120,
-                            type=int, help="Maximum length of char/word-piece sequence")
         parser.add_argument("-max_out_phone", "--max_output_phone", default=250,
                             type=int, help="Maximum length of phone sequence")
         # Optimization params

@@ -55,8 +55,6 @@ class Train(BaseParams):
         params['train_dir'] = "/scratch"
         params['best_model_dir'] = "/scratch"
 
-        params['lm_prob'] = 0.0  #0.5
-        params['lm_params'] = LMModel.class_params()
 
         params['run_id'] = 1
         params['steps_per_checkpoint'] = 500
@@ -103,8 +101,8 @@ class Train(BaseParams):
         with tf.variable_scope("model", reuse=(True if not standalone else None)):
             print ("Creating dev model")
             dev_seq2seq_params = copy.deepcopy(self.seq2seq_params)
-            dev_seq2seq_params.tasks = {'char'}
-            dev_seq2seq_params.num_layers = {'char': dev_seq2seq_params.num_layers['char']}
+            dev_seq2seq_params.tasks = {'phone'}
+            dev_seq2seq_params.num_layers = {'phone': dev_seq2seq_params.num_layers['phone']}
             model_dev = Seq2SeqModel(dev_set.data_iter, isTraining=False,
                                      params=dev_seq2seq_params)
 
@@ -151,25 +149,6 @@ class Train(BaseParams):
 
                 self.create_eval_model(dev_set)
 
-                if params.lm_prob > 0:
-                    # Create LM dataset
-                    lm_files = glob.glob(os.path.join(params.lm_data_dir, "lm*"))
-                    random.shuffle(lm_files)
-                    print ("Total SHUFFLED LM files: %d" %len(lm_files))
-                    sys.stdout.flush()
-                    lm_set = LMDataset(lm_files, params.batch_size)
-
-                    # Create LM model
-                    with tf.variable_scope("model", reuse=None):
-                        print ("Creating LM model")
-                        sys.stdout.flush()
-                        lm_params = copy.deepcopy(
-                            model_params.decoder_params['char'])
-                        lm_params.encoder_hidden_size =\
-                            2 * model_params.encoder_params.hidden_size
-                        lm_model = LMModel(LMEncoder(lm_params), lm_set.data_iter,
-                                           params=params.lm_params)
-
                 model_saver = tf.train.Saver(tf.global_variables(), max_to_keep=None)
                 best_model_saver = tf.train.Saver(tf.global_variables(), max_to_keep=2)
 
@@ -183,29 +162,27 @@ class Train(BaseParams):
 
                 train_writer = tf.summary.FileWriter(params.train_dir +
                                                      '/summary', tf.get_default_graph())
-                asr_err_best = 1.0
+                phn_err_best = 1.0
                 if ckpt:
                     # Some training has been done
                     score_file = os.path.join(params.train_dir, "best.txt")
                     # Check existence of such a file
                     if os.path.isfile(score_file):
                         try:
-                            asr_err_best = float(open(score_file).readline().strip("\n"))
+                            phn_err_best = float(open(score_file).readline().strip("\n"))
                         except ValueError:
-                            asr_err_best = 1
+                            phn_err_best = 1
 
-                print ("\nBest ASR error rate - %f" %asr_err_best)
+                print ("\nBest Phone error rate - %f" %phn_err_best)
                 sys.stdout.flush()
 
                 # This is the training loop.
                 epc_time, loss = 0.0, 0.0
                 ckpt_start_time = time.time()
                 current_step = 0
-                if params.lm_prob > 0:
-                    lm_steps, lm_loss = lm_model.lm_global_step.eval(), 0.0
                 previous_errs = []
                 try:
-                    with open(path.join(params.train_dir, "asr_err.txt"), "r") as err_f:
+                    with open(path.join(params.train_dir, "phone_err.txt"), "r") as err_f:
                         for line in err_f:
                             previous_errs.append(float(line.strip()))
                         print ("Previous perf. log of %d checkpoints loaded" %(len(previous_errs)))
@@ -215,9 +192,6 @@ class Train(BaseParams):
                 except:
                     pass
 
-                if params.lm_prob > 0:
-                    # Run the LM initializer
-                    sess.run(lm_set.data_iter.initializer)
 
                 while epoch <= params.max_epochs:
                     print("\nEpochs done: %d" %epoch)
@@ -229,110 +203,89 @@ class Train(BaseParams):
                         sess.run(iter_init.initializer)
 
                     while active_handle_list:
-                        task = ("lm" if (params.lm_prob > random.random()) else "asr")
-                        #task = random.choice(["lm"])
-                        if task == "lm":
-                            try:
-                                output_feed = [lm_model.updates, lm_model.losses]
-                                _, lm_step_loss = sess.run(output_feed)
-                                lm_loss += lm_step_loss/params.steps_per_checkpoint
-                                lm_steps += 1
-                                if lm_steps % params.steps_per_checkpoint == 0:
-                                    perplexity = math.exp(lm_loss) if lm_loss < 300 else float('inf')
-                                    print ("LM steps: %d, Perplexity: %f" %(lm_steps, perplexity))
+                        cur_handle = random.choice(active_handle_list)
+                        try:
+                            output_feed = [model.updates,  model.losses]
+
+                            _, step_loss = sess.run(output_feed, feed_dict={handle: cur_handle})
+                            step_loss = step_loss["phone"]
+
+                            current_step += 1
+                            loss += step_loss / params.steps_per_checkpoint
+
+                            if current_step % params.steps_per_checkpoint == 0:
+                                # Print statistics for the previous epoch.
+                                perplexity = math.exp(loss) if loss < 300 else float('inf')
+                                ckpt_time = time.time() - ckpt_start_time
+
+                                print ("Step %d Learning rate %.4f Checkpoint time %.2f Perplexity "
+                                       "%.2f" % (model.global_step.eval(), model.learning_rate.eval(),
+                                                 ckpt_time, perplexity))
+                                sys.stdout.flush()
+
+                                loss_summary = tf_utils.get_summary(perplexity, "ASR Perplexity")
+                                train_writer.add_summary(loss_summary, model.global_step.eval())
+
+                                lr_summary = tf_utils.get_summary(model.learning_rate.eval(), "Learning rate")
+                                train_writer.add_summary(lr_summary, model.global_step.eval())
+
+                                decode_start_time = time.time()
+                                phn_err_cur = self.eval_model.phone_decode(sess)
+                                decode_end_time = time.time() - decode_start_time
+
+                                print ("Phone error: %.4f, Decoding time: %s"
+                                       %(phn_err_cur, timedelta(seconds=decode_end_time)))
+                                sys.stdout.flush()
+                                with open(path.join(params.train_dir, "phone_err.txt"), "a") as err_f:
+                                    err_f.write(str(phn_err_cur) + "\n")
+
+                                err_summary = tf_utils.get_summary(phn_err_cur, "ASR Error")
+                                train_writer.add_summary(err_summary, model.global_step.eval())
+
+                                previous_errs.append(phn_err_cur)
+                                if model.global_step.eval() >= params.min_steps:
+                                    if not self.check_progess(previous_errs, num=3):
+                                        # Training has already happened for min epochs and the dev
+                                        # error is getting worse w.r.t. the worst value in previous 3 checkpoints
+                                        if model.learning_rate.eval() > 1e-4:
+                                            sess.run(model.learning_rate_decay_op)
+                                            print ("Learning rate decreased !!")
+                                            sys.stdout.flush()
+
+                                if not self.check_progess(previous_errs):
+                                    print ("No improvement in 10 checkpoints")
+                                    sys.exit()
+
+
+                                # Early stopping
+                                if phn_err_best > phn_err_cur:
+                                    phn_err_best = phn_err_cur
+                                    # Save model
+                                    print("Best Phone Error rate: %.4f" % phn_err_best)
+                                    print("Saving the best model !!")
                                     sys.stdout.flush()
 
-                                    lm_summary = tf_utils.get_summary(perplexity, "LM Perplexity")
-                                    train_writer.add_summary(lm_summary, model.global_step.eval())
+                                    # Save the best score
+                                    f = open(os.path.join(params.train_dir, "best.txt"), "w")
+                                    f.write(str(phn_err_best))
+                                    f.close()
 
-                                    lm_loss = 0.0
-                            except tf.errors.OutOfRangeError:
-                                # Run the LM initializer
-                                sess.run(lm_set.data_iter.initializer)
-                        else:
-                            cur_handle = random.choice(active_handle_list)
-                            try:
-                                output_feed = [model.updates,  model.losses]
+                                    # Save the model in best model directory
+                                    checkpoint_path = os.path.join(params.best_model_dir, "phone_rec.ckpt")
+                                    best_model_saver.save(sess, checkpoint_path, global_step=model.global_step, write_meta_graph=False)
 
-                                _, step_loss = sess.run(output_feed, feed_dict={handle: cur_handle})
-                                step_loss = step_loss["char"]
+                                # Also save the model for plotting
+                                checkpoint_path = os.path.join(params.train_dir, "phone_err.ckpt")
+                                model_saver.save(sess, checkpoint_path, global_step=model.global_step, write_meta_graph=False)
 
-                                current_step += 1
-                                loss += step_loss / params.steps_per_checkpoint
+                                print ("\n")
+                                sys.stdout.flush()
+                                # Reinitialze tracking variables
+                                ckpt_start_time = time.time()
+                                loss = 0.0
 
-                                if current_step % params.steps_per_checkpoint == 0:
-                                    # Print statistics for the previous epoch.
-                                    perplexity = math.exp(loss) if loss < 300 else float('inf')
-                                    ckpt_time = time.time() - ckpt_start_time
-
-                                    print ("Step %d Learning rate %.4f Checkpoint time %.2f Perplexity "
-                                           "%.2f" % (model.global_step.eval(), model.learning_rate.eval(),
-                                                     ckpt_time, perplexity))
-                                    sys.stdout.flush()
-
-                                    loss_summary = tf_utils.get_summary(perplexity, "ASR Perplexity")
-                                    train_writer.add_summary(loss_summary, model.global_step.eval())
-
-                                    lr_summary = tf_utils.get_summary(model.learning_rate.eval(), "Learning rate")
-                                    train_writer.add_summary(lr_summary, model.global_step.eval())
-
-                                    decode_start_time = time.time()
-                                    asr_err_cur = self.eval_model.asr_decode(sess)
-                                    decode_end_time = time.time() - decode_start_time
-
-                                    print ("ASR error: %.4f, Decoding time: %s"
-                                           %(asr_err_cur, timedelta(seconds=decode_end_time)))
-                                    sys.stdout.flush()
-                                    with open(path.join(params.train_dir, "asr_err.txt"), "a") as err_f:
-                                        err_f.write(str(asr_err_cur) + "\n")
-
-                                    err_summary = tf_utils.get_summary(asr_err_cur, "ASR Error")
-                                    train_writer.add_summary(err_summary, model.global_step.eval())
-
-                                    previous_errs.append(asr_err_cur)
-                                    if model.global_step.eval() >= params.min_steps:
-                                        if not self.check_progess(previous_errs, num=3):
-                                            # Training has already happened for min epochs and the dev
-                                            # error is getting worse w.r.t. the worst value in previous 3 checkpoints
-                                            if model.learning_rate.eval() > 1e-4:
-                                                sess.run(model.learning_rate_decay_op)
-                                                print ("Learning rate decreased !!")
-                                                sys.stdout.flush()
-
-                                    if not self.check_progess(previous_errs):
-                                        print ("No improvement in 10 checkpoints")
-                                        sys.exit()
-
-
-                                    # Early stopping
-                                    if asr_err_best > asr_err_cur:
-                                        asr_err_best = asr_err_cur
-                                        # Save model
-                                        print("Best ASR Error rate: %.4f" % asr_err_best)
-                                        print("Saving the best model !!")
-                                        sys.stdout.flush()
-
-                                        # Save the best score
-                                        f = open(os.path.join(params.train_dir, "best.txt"), "w")
-                                        f.write(str(asr_err_best))
-                                        f.close()
-
-                                        # Save the model in best model directory
-                                        checkpoint_path = os.path.join(params.best_model_dir, "asr.ckpt")
-                                        best_model_saver.save(sess, checkpoint_path, global_step=model.global_step, write_meta_graph=False)
-
-                                    # Also save the model for plotting
-                                    checkpoint_path = os.path.join(params.train_dir, "asr.ckpt")
-                                    model_saver.save(sess, checkpoint_path, global_step=model.global_step, write_meta_graph=False)
-
-                                    print ("\n")
-                                    sys.stdout.flush()
-                                    # Reinitialze tracking variables
-                                    ckpt_start_time = time.time()
-                                    loss = 0.0
-
-                            except tf.errors.OutOfRangeError:
-                                active_handle_list.remove(cur_handle)
+                        except tf.errors.OutOfRangeError:
+                            active_handle_list.remove(cur_handle)
 
 
                     print ("Total steps: %d" %model.global_step.eval())
@@ -346,19 +299,14 @@ class Train(BaseParams):
     @classmethod
     def add_parse_options(cls, parser):
         # Training params
-        parser.add_argument("-lm_prob", default=0.0, type=float,
-                            help="Prob. of running the LM task")
         parser.add_argument("-run_id", "--run_id", default=0, type=int, help="Run ID")
         parser.add_argument("-data_dir", default="/scratch2/asr_multi/data/tfrecords",
-                            type=str, help="Data directory")
-        parser.add_argument("-lm_data_dir",
-                            default="/scratch2/asr_multi/data/tfrecords/fisher/red_0.7",
                             type=str, help="Data directory")
         parser.add_argument("-vocab_dir", "--vocab_dir", default="/share/data/speech/"
                             "shtoshni/research/datasets/asr_swbd/lang/vocab",
                             type=str, help="Vocab directory")
         parser.add_argument("-tb_dir", "--train_base_dir",
-                            default="/scratch2/asr_multi/models",
+                            default="/scratch2/asr_multi/phone_models",
                             type=str, help="Training directory")
         parser.add_argument("-feat_len", "--feat_length", default=80, type=int,
                             help="Number of features per frame")

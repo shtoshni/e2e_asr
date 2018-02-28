@@ -76,18 +76,17 @@ def process_args(options):
                       if options['stack_cons'] > 1 else '') +
                      (('base_stride_' + str(options['initial_res_fac'])  + "_")
                       if options['initial_res_fac'] > 1 else '') +
-                     (('char_dec_dep_' + str(options['num_layers_dec']) + '_')
+                     (('phone_dec_dep_' + str(options['num_layers_dec']) + '_')
                       if options['num_layers_dec'] > 1 else '') +
-                     ('lm_prob_' + str(options['lm_prob']) + '_') +
                      'run_id_' + str(options['run_id']) +
                      ('_avg_' if options['avg'] else '')
         )
         return train_dir
 
     def parse_tasks(task_string):
-        tasks = ["char"]
-        if "p" in task_string:
-            tasks.append("phone")
+        tasks = ["phone"]
+        if "c" in task_string:
+            tasks.append("char")
         return tasks
 
     options['tasks'] = parse_tasks(options['tasks'])
@@ -121,8 +120,7 @@ def process_args(options):
         task_params = copy.deepcopy(decoder_params_base)
         task_params.vocab_size = options['vocab_size'][task]
         task_params.max_output = options['max_output'][task]
-        if task is not "char":
-            # Only make the char model deep
+        if task is not "phone":
             task_params.num_layers_dec = 1
 
         decoder_params[task] = task_params
@@ -189,31 +187,7 @@ def launch_eval(options):
         else:
             sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
 
-        trainer.eval_model.asr_decode(sess)
-
-
-def eval_model(session, isTraining, seq2seq_params, data_iter, model_path=None, actual_eval=False):
-    """Create model and initialize or load parameters in session."""
-    model = create_seq2seq_model(isTraining, seq2seq_params, data_iter)
-    ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir)
-    ckpt_best = tf.train.get_checkpoint_state(FLAGS.best_model_dir)
-    if ckpt:
-        steps_done = int(ckpt.model_checkpoint_path.split('-')[-1])
-        if ckpt_best:
-            steps_done_best = int(ckpt_best.model_checkpoint_path.split('-')[-1])
-            if (steps_done_best > steps_done) or actual_eval:
-                ckpt = ckpt_best
-                steps_done = steps_done_best
-        print("loaded from %d done steps" %(steps_done) )
-        print("Reading model parameters from %s" % ckpt.model_checkpoint_path)
-        steps_done = int(ckpt.model_checkpoint_path.split('-')[-1])
-        print("loaded from %d done steps" %(steps_done) )
-        sys.stdout.flush()
-    else:
-        print("Created model with fresh parameters.")
-        sys.stdout.flush()
-        steps_done = 0
-    return model, steps_done
+        trainer.eval_model.phone_decode(sess)
 
 
 if __name__ == "__main__":
