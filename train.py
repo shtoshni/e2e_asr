@@ -61,6 +61,12 @@ class Train(BaseParams):
 
         params['run_id'] = 1
         params['steps_per_checkpoint'] = 500
+
+        # Pretrained models path
+        params["pretrain_lm_path"] = ""
+        params["pretrain_phone_path"] = ""
+
+        params["chaos"] = False
         return params
 
     def __init__(self, model_params, train_params=None):
@@ -143,8 +149,14 @@ class Train(BaseParams):
 
         with tf.Graph().as_default():
             # Set the random seeds
-            tf.set_random_seed(10)
-            random.seed(10)
+            if not params.chaos:
+                # Random seeds controlled
+                tf.set_random_seed(10)
+                random.seed(10)
+            else:
+                # For 4 hr GPU cycles introducing randomness is good
+                tf.set_random_seed(int(time.time()))
+                random.seed(int(time.time()))
 
             # Bucket train sets
             buck_train_sets, dev_set = self.get_data_sets()
@@ -196,6 +208,13 @@ class Train(BaseParams):
                 ckpt = tf.train.get_checkpoint_state(params.train_dir)
                 if not ckpt:
                     sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
+                    if params.pretrain_lm_path:
+                        tf_utils.restore_common_variables(sess, params.pretrain_lm_path)
+                    if params.pretrain_phone_path:
+                        print ("Oh hello")
+                        tf_utils.restore_common_variables(sess, params.pretrain_phone_path)
+
+
                 else:
                     tf.train.Saver().restore(sess, ckpt.model_checkpoint_path)
                 # Prepare training data
@@ -395,5 +414,13 @@ class Train(BaseParams):
                             type=int, help="Gradient steps per checkpoint")
         parser.add_argument("-min_steps", "--min_steps", default=25000, type=int,
                             help="Min steps BEFORE DECREASING LEARNING RATE")
+
+        parser.add_argument("-pretrain_lm_path", default="", type=str,
+                            help="Pretrain language model path")
+        parser.add_argument("-pretrain_phone_path", default="", type=str,
+                            help="Pretrain phone model path")
+
+        parser.add_argument("-chaos", default=False, action="store_true",
+                            help="Random seed is not controlled if set")
 
 
