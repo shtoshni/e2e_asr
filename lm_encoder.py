@@ -70,7 +70,10 @@ class LMEncoder(Decoder, BaseParams):
 
                 if cell_output is None:
                     next_state = self.cell.zero_state(batch_size, dtype=tf.float32)
-                    output = None
+                    # This output is not used but is just used to tell the shape
+                    # without the batch dimension
+                    # Check here - https://www.tensorflow.org/api_docs/python/tf/nn/raw_rnn
+                    output = tf.zeros((self.params.vocab_size))
                     loop_state = None
                     next_input = inputs_ta.read(time)
                 else:

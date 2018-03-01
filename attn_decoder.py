@@ -83,7 +83,6 @@ class AttnDecoder(Decoder, BaseParams):
                     """Put attention masks on hidden using hidden_features and query."""
                     with tf.variable_scope("Attention"):
                         y = _linear(query, params.attention_vec_size, True)
-                        #y = attn_proj(query)
                         y = tf.reshape(y, [-1, 1, 1, params.attention_vec_size])
                         s = tf.reduce_sum(
                             v * tf.tanh(hidden_features + y), [2, 3])
@@ -116,8 +115,6 @@ class AttnDecoder(Decoder, BaseParams):
                     #loop_state = attention(cell_output, loop_state[1])
                     loop_state = attention(self.get_state(state), loop_state[1])
                     with tf.variable_scope("AttnOutputProjection"):
-                        #output = _linear([cell_output, loop_state[0]],
-                        #                 self.cell.output_size, True)
                         output = _linear([self.get_state(state), loop_state[0]],
                                          self.params.vocab_size, True)
 
