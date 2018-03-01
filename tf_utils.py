@@ -61,3 +61,30 @@ def restore_common_variables(sess, ckpt_path):
         except ValueError:
             print ("Shape wanted: %s, Shape stored: %s for %s"
                    %(str(var.shape), str(common_vars[var].shape), var.name))
+
+
+def get_matching_variables(var_name_substr, checkpoint_path):
+    """Returns the subset of variables available in the checkpoint.
+
+    Inspects given checkpoint and returns the subset of variables that are
+    available in it.
+
+    TODO: force input and output to be a dictionary.
+
+    Args:
+      variables: a list or dictionary of variables to find in checkpoint.
+      checkpoint_path: path to the checkpoint to restore variables from.
+
+    Returns:
+      A list or dictionary of variables.
+    Raises:
+      ValueError: if `variables` is not a list or dict.
+    """
+    ckpt_reader = tf.train.NewCheckpointReader(checkpoint_path)
+    ckpt_vars = ckpt_reader.get_variable_to_shape_map().keys()
+    vars_in_ckpt = {}
+    for var_name in ckpt_vars:
+        if var_name_substr in var_name:
+            if "Adam" not in var_name:
+                vars_in_ckpt[var_name] = ckpt_reader.get_tensor(var_name)
+    return vars_in_ckpt

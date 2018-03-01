@@ -37,7 +37,7 @@ class LMEncoder(Decoder, BaseParams):
         if params.num_layers_dec > 1:
             state = state[-1]
         if params.use_lstm:
-            state = state.c
+            state = state.h
 
         return state
 

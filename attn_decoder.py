@@ -38,7 +38,7 @@ class AttnDecoder(Decoder, BaseParams):
         if params.num_layers_dec > 1:
             state = state[-1]
         if params.use_lstm:
-            state = state.c
+            state = state.h
 
         return state
 
@@ -105,7 +105,10 @@ class AttnDecoder(Decoder, BaseParams):
 
                 if cell_output is None:
                     next_state = self.cell.zero_state(batch_size, dtype=tf.float32)
-                    output = None
+                    # This output is not used but is just used to tell the shape
+                    # without the batch dimension
+                    # Check here - https://www.tensorflow.org/api_docs/python/tf/nn/raw_rnn
+                    output = tf.zeros((self.params.vocab_size))
                     loop_state = tuple([attn, alpha])
                     next_input = inputs_ta.read(time)
                 else:
@@ -124,17 +127,19 @@ class AttnDecoder(Decoder, BaseParams):
                     else:
                         if loop_function is not None:
                             random_prob = tf.random_uniform([])
-                            simple_input = tf.cond(finished,
+                            simple_input = tf.cond(
+                                finished,
                                 lambda: tf.zeros([batch_size, emb_size], dtype=tf.float32),
                                 lambda: tf.cond(tf.less(random_prob, 1 - params.samp_prob),
-                                    lambda: inputs_ta.read(time),
-                                    lambda: loop_function(output))
-                                )
+                                                lambda: inputs_ta.read(time),
+                                                lambda: loop_function(output))
+                            )
                         else:
-                            simple_input = tf.cond(finished,
+                            simple_input = tf.cond(
+                                finished,
                                 lambda: tf.zeros([batch_size, emb_size], dtype=tf.float32),
                                 lambda: inputs_ta.read(time)
-                                )
+                            )
 
                     # Merge input and previous attentions into one vector of the right size.
                     input_size = simple_input.get_shape().with_rank(2)[1]

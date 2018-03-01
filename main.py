@@ -192,30 +192,6 @@ def launch_eval(options):
         trainer.eval_model.asr_decode(sess)
 
 
-def eval_model(session, isTraining, seq2seq_params, data_iter, model_path=None, actual_eval=False):
-    """Create model and initialize or load parameters in session."""
-    model = create_seq2seq_model(isTraining, seq2seq_params, data_iter)
-    ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir)
-    ckpt_best = tf.train.get_checkpoint_state(FLAGS.best_model_dir)
-    if ckpt:
-        steps_done = int(ckpt.model_checkpoint_path.split('-')[-1])
-        if ckpt_best:
-            steps_done_best = int(ckpt_best.model_checkpoint_path.split('-')[-1])
-            if (steps_done_best > steps_done) or actual_eval:
-                ckpt = ckpt_best
-                steps_done = steps_done_best
-        print("loaded from %d done steps" %(steps_done) )
-        print("Reading model parameters from %s" % ckpt.model_checkpoint_path)
-        steps_done = int(ckpt.model_checkpoint_path.split('-')[-1])
-        print("loaded from %d done steps" %(steps_done) )
-        sys.stdout.flush()
-    else:
-        print("Created model with fresh parameters.")
-        sys.stdout.flush()
-        steps_done = 0
-    return model, steps_done
-
-
 if __name__ == "__main__":
     options = parse_options()
     if options.eval_dev or options.test:

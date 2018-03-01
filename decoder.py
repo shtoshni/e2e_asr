@@ -67,10 +67,6 @@ class Decoder(BaseParams):
         else:
             cell = single_cell()
 
-        # Use the OutputProjectionWrapper to project cell output to output
-        # vocab size. This projection is fine for a small vocabulary output
-        # but would be bad for large vocabulary output spaces.
-        cell = tf.contrib.rnn.OutputProjectionWrapper(cell, params.vocab_size)
         return cell
 
     def prepare_decoder_input(self, decoder_inputs):

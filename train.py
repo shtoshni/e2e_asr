@@ -211,7 +211,6 @@ class Train(BaseParams):
                     if params.pretrain_lm_path:
                         tf_utils.restore_common_variables(sess, params.pretrain_lm_path)
                     if params.pretrain_phone_path:
-                        print ("Oh hello")
                         tf_utils.restore_common_variables(sess, params.pretrain_phone_path)
 
 
