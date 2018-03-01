@@ -338,9 +338,11 @@ class Train(BaseParams):
 
                                     previous_errs.append(asr_err_cur)
                                     if model.global_step.eval() >= params.min_steps:
-                                        if not self.check_progess(previous_errs, num=6):
+                                        if len(previous_errs) > 3 and asr_err_cur >= max(previous_errs[-3:]):
                                             # Training has already happened for min epochs and the dev
                                             # error is getting worse w.r.t. the worst value in previous 3 checkpoints
+                                            # If the code is not reaching this point then it's guaranteed that the
+                                            # worst performance keeps improving
                                             if model.learning_rate.eval() > 1e-4:
                                                 sess.run(model.learning_rate_decay_op)
                                                 print ("Learning rate decreased !!")
