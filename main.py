@@ -27,11 +27,8 @@ import tensorflow as tf
 import data_utils
 from attn_decoder import AttnDecoder
 from encoder import Encoder
-from lm_encoder import LMEncoder
-from lm_model import LMModel
 from seq2seq_model import Seq2SeqModel
 from speech_dataset import SpeechDataset
-from lm_dataset import LMDataset
 from train import Train
 
 
@@ -42,7 +39,6 @@ def parse_options():
     Encoder.add_parse_options(parser)
     AttnDecoder.add_parse_options(parser)
     Seq2SeqModel.add_parse_options(parser)
-    LMModel.add_parse_options(parser)
 
     parser.add_argument("-eval_dev", default=False, action="store_true",
                         help="Get dev set results using the last saved model")
@@ -128,9 +124,6 @@ def process_args(options):
     seq2seq_params = Seq2SeqModel.get_updated_params(options)
     seq2seq_params.encoder_params = encoder_params
     seq2seq_params.decoder_params = decoder_params
-
-    lm_params = LMModel.get_updated_params(options)
-    train_params.lm_params = lm_params
 
     if not options['test'] and not options['eval_dev']:
         if not os.path.exists(options['train_dir']):

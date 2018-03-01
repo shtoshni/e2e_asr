@@ -184,7 +184,7 @@ class Encoder(BaseParams):
         # Common encoder-decoder params
         parser.add_argument("-out_prob", "--out_prob", default=0.9, type=float,
                             help="Output keep probability for dropout")
-        parser.add_argument("-use_lstm", "--use_lstm", default=False, action="store_true",
+        parser.add_argument("-use_lstm", "--use_lstm", default=True, action="store_true",
                             help="Use LSTM or GRU")
         parser.add_argument("-hsize", "--hidden_size", default=256, type=int,
                             help="Hidden layer size")

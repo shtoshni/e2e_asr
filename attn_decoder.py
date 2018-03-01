@@ -105,7 +105,7 @@ class AttnDecoder(Decoder, BaseParams):
 
                 if cell_output is None:
                     next_state = self.cell.zero_state(batch_size, dtype=tf.float32)
-                    output = None
+                    output = tf.zeros((self.params.vocab_size))
                     loop_state = tuple([attn, alpha])
                     next_input = inputs_ta.read(time)
                 else:
@@ -113,8 +113,6 @@ class AttnDecoder(Decoder, BaseParams):
                     #loop_state = attention(cell_output, loop_state[1])
                     loop_state = attention(self.get_state(state), loop_state[1])
                     with tf.variable_scope("AttnOutputProjection"):
-                        #output = _linear([cell_output, loop_state[0]],
-                        #                 self.cell.output_size, True)
                         output = _linear([self.get_state(state), loop_state[0]],
                                          self.params.vocab_size, True)
 

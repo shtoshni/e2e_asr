@@ -24,11 +24,8 @@ import data_utils
 import tf_utils
 from attn_decoder import AttnDecoder
 from encoder import Encoder
-from lm_encoder import LMEncoder
-from lm_model import LMModel
 from seq2seq_model import Seq2SeqModel
 from speech_dataset import SpeechDataset
-from lm_dataset import LMDataset
 from base_params import BaseParams
 from eval_model import Eval
 
@@ -47,7 +44,6 @@ class Train(BaseParams):
 
         # Data directories
         params['data_dir'] = "/scratch2/asr_multi/data/tfrecords"
-        params['lm_data_dir'] = "/scratch2/asr_multi/data/tfrecords/fisher/red_0.7"
         params['vocab_dir'] = "/share/data/speech/shtoshni/research/datasets/asr_swbd/lang/vocab"
 
         params['train_base_dir'] = "/scratch2/asr_multi/models"
