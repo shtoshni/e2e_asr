@@ -77,7 +77,7 @@ class LMEncoder(Decoder, BaseParams):
                     next_state = state
                     with tf.variable_scope("AttnOutputProjection"):
                         output = _linear([self.get_state(state), zero_attn],
-                                         self.cell.output_size, True)
+                                         self.params.vocab_size, True)
 
                     if loop_function is not None:
                         random_prob = tf.random_uniform([])
