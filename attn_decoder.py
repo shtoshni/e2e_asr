@@ -32,16 +32,6 @@ class AttnDecoder(Decoder, BaseParams):
         self.scope = scope
         self.cell = self.get_cell()
 
-    def get_state(self, state):
-        """Get the state while handling multiple layer and different cell cases."""
-        params = self.params
-        if params.num_layers_dec > 1:
-            state = state[-1]
-        if params.use_lstm:
-            state = state.h
-
-        return state
-
     def __call__(self, decoder_inp, seq_len,
                  encoder_hidden_states, seq_len_inp):
         # First prepare the decoder input - Embed the input and obtain the

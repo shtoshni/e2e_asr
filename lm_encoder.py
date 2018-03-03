@@ -30,7 +30,6 @@ class LMEncoder(Decoder, BaseParams):
         super(LMEncoder, self).__init__(isTraining=True, params=params)
         # No output projection required in attention decoder
         self.cell = self.get_cell()
-
     def __call__(self, decoder_inp, seq_len):
         # First prepare the decoder input - Embed the input and obtain the
         # relevant loop function

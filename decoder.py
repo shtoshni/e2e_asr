@@ -69,6 +69,16 @@ class Decoder(BaseParams):
 
         return cell
 
+    def get_state(self, state):
+        """Get the state while handling multiple layer and different cell cases."""
+        params = self.params
+        if params.num_layers_dec > 1:
+            state = state[-1]
+        if params.use_lstm:
+            state = state.c
+
+        return state
+
     def prepare_decoder_input(self, decoder_inputs):
         """Do this step before starting decoding.
 

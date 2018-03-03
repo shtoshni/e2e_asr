@@ -55,7 +55,7 @@ class Train(BaseParams):
         params['train_dir'] = "/scratch"
         params['best_model_dir'] = "/scratch"
 
-        params['lm_prob'] = 0.0  #0.5
+        params['lm_prob'] = 0.0
         params['lm_params'] = LMModel.class_params()
 
         params['run_id'] = 1
