@@ -31,16 +31,6 @@ class LMEncoder(Decoder, BaseParams):
         # No output projection required in attention decoder
         self.cell = self.get_cell()
 
-    def get_state(self, state):
-        """Get the state while handling multiple layer and different cell cases."""
-        params = self.params
-        if params.num_layers_dec > 1:
-            state = state[-1]
-        if params.use_lstm:
-            state = state.h
-
-        return state
-
     def __call__(self, decoder_inp, seq_len):
         # First prepare the decoder input - Embed the input and obtain the
         # relevant loop function

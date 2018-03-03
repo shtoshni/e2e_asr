@@ -40,7 +40,6 @@ class Train(BaseParams):
         params = Bunch()
 
         params['batch_size'] = 128
-        params['lm_buck_batch_size'] = [256, 256, 128, 128, 64]
         params['buck_batch_size'] = [128, 128, 64, 64, 32]
         params['max_epochs'] = 30
         params['min_steps'] = 25000
@@ -93,6 +92,7 @@ class Train(BaseParams):
             dataset_params.batch_size = batch_size
             buck_train_files = glob.glob(path.join(
                 params.data_dir, "train_1k." + str(batch_id) + ".*"))
+            random.shuffle(buck_train_files)
             total_train_files += len(buck_train_files)
             buck_train_set = SpeechDataset(dataset_params, buck_train_files, isTraining=True)
             buck_train_sets.append(buck_train_set)
@@ -105,20 +105,12 @@ class Train(BaseParams):
                                 isTraining=False)
         return buck_train_sets, dev_set
 
-    def get_lm_sets(self):
+
+    def get_lm_files(self):
         params = self.params
-        buck_lm_sets = []
-        total_lm_files = 0
+        lm_files = glob.glob(path.join(params.lm_data_dir, "lm*"))
+        return lm_files
 
-        for batch_id, batch_size in enumerate(params.lm_buck_batch_size):
-            buck_lm_files = glob.glob(path.join(
-                params.lm_data_dir, "lm" + str(batch_id) + ".*"))
-            total_lm_files += len(buck_lm_files)
-            buck_lm_set = LMDataset(buck_lm_files, batch_size)
-            buck_lm_sets.append(buck_lm_set)
-        print ("Total LM files: %d" %total_lm_files)
-
-        return buck_lm_sets
 
     def create_eval_model(self, dev_set, standalone=False):
         with tf.variable_scope("model", reuse=(True if not standalone else None)):
@@ -180,16 +172,7 @@ class Train(BaseParams):
 
                 if params.lm_prob > 0:
                     # Create LM dataset
-                    buck_lm_sets = self.get_lm_sets()
-                    lm_handle = tf.placeholder(tf.string, shape=[])
-                    lm_iterator = tf.data.Iterator.from_string_handle(
-                        lm_handle, buck_lm_sets[0].data_set.output_types,
-                        buck_lm_sets[0].data_set.output_shapes)
-                    iter_lm_list = []
-                    iter_lm_handle_list = []
-                    for lm_set in buck_lm_sets:
-                        iter_lm_list.append(lm_set.data_iter)
-                        iter_lm_handle_list.append(sess.run(lm_set.data_iter.string_handle()))
+                    lm_files = self.get_lm_files()
 
                     # Create LM model
                     with tf.variable_scope("model", reuse=None):
@@ -199,7 +182,7 @@ class Train(BaseParams):
                             model_params.decoder_params['char'])
                         lm_params.encoder_hidden_size =\
                             2 * model_params.encoder_params.hidden_size
-                        lm_model = LMModel(LMEncoder(lm_params), lm_iterator,
+                        lm_model = LMModel(LMEncoder(lm_params), data_files=lm_files,
                                            params=params.lm_params)
 
                 model_saver = tf.train.Saver(tf.global_variables(), max_to_keep=None)
@@ -241,6 +224,7 @@ class Train(BaseParams):
                 current_step = 0
                 if params.lm_prob > 0:
                     lm_steps, lm_loss = 0, 0.0
+                    sess.run(lm_model.data_iter.initializer)
                 previous_errs = []
                 try:
                     with open(path.join(params.train_dir, "asr_err.txt"), "r") as err_f:
@@ -253,11 +237,6 @@ class Train(BaseParams):
                 except:
                     pass
 
-                if params.lm_prob > 0:
-                    # Run the LM initializer
-                    for iter_lm in iter_lm_list:
-                        sess.run(iter_lm.initializer)
-                    active_lm_handle_list = copy.deepcopy(iter_lm_handle_list)
 
                 while epoch <= params.max_epochs:
                     print("\nEpochs done: %d" %epoch)
@@ -270,17 +249,16 @@ class Train(BaseParams):
 
                     while active_handle_list:
                         task = ("lm" if (params.lm_prob > random.random()) else "asr")
-                        #task = random.choice(["lm"])
                         if task == "lm":
-                            cur_lm_handle = random.choice(active_lm_handle_list)
                             try:
                                 output_feed = [lm_model.updates, lm_model.losses]
-                                _, lm_step_loss = sess.run(output_feed, feed_dict={lm_handle: cur_lm_handle})
+                                _, lm_step_loss = sess.run(output_feed)
                                 lm_loss += lm_step_loss/params.steps_per_checkpoint
                                 lm_steps += 1
                                 if lm_steps % params.steps_per_checkpoint == 0:
                                     perplexity = math.exp(lm_loss) if lm_loss < 300 else float('inf')
-                                    print ("LM steps: %d, Perplexity: %f" %(lm_steps, perplexity))
+                                    print ("LM steps: %d, Perplexity: %f" %(
+                                        lm_model.lm_global_step.eval(), perplexity))
                                     sys.stdout.flush()
 
                                     lm_summary = tf_utils.get_summary(perplexity, "LM Perplexity")
@@ -288,13 +266,9 @@ class Train(BaseParams):
 
                                     lm_loss = 0.0
                             except tf.errors.OutOfRangeError:
-                                # Run the LM initializer
-                                active_lm_handle_list.remove(cur_lm_handle)
-                                if not active_lm_handle_list:
-                                    print ("LM epoch done!")
-                                    for iter_lm in iter_lm_list:
-                                        sess.run(iter_lm.initializer)
-                                    active_lm_handle_list = copy.deepcopy(iter_lm_handle_list)
+                                # Create LM dataset again - Another shuffle
+                                sess.run(lm_model.data_iter.initializer)
+                                print ("LM Epoch done %d !!" %lm_steps)
 
                         else:
                             cur_handle = random.choice(active_handle_list)

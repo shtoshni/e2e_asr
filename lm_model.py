@@ -10,11 +10,13 @@ from __future__ import print_function
 
 from bunch import Bunch
 
+import random
 import tensorflow as tf
 
 import tf_utils
 from losses import LossUtils
 from base_params import BaseParams
+from lm_dataset import LMDataset
 
 
 class LMModel(BaseParams):
@@ -25,6 +27,7 @@ class LMModel(BaseParams):
         params = Bunch()
 
         # Optimization params
+        params['lm_batch_size'] = 128
         params['learning_rate'] = 1e-3
         params['learning_rate_decay_factor'] = 0.5
         params['max_gradient_norm'] = 5.0
@@ -32,7 +35,7 @@ class LMModel(BaseParams):
 
         return params
 
-    def __init__(self, encoder, data_iter, params=None):
+    def __init__(self, encoder, data_files, params=None):
         """Initializer of class
 
         Args:
@@ -44,7 +47,8 @@ class LMModel(BaseParams):
             self.params = params
         params = self.params
 
-        self.data_iter = data_iter
+        self.data_files = data_files
+        self.data_iter = self.update_iterator()
 
         self.learning_rate = tf.Variable(float(params.learning_rate),
                                          trainable=False)
@@ -78,6 +82,12 @@ class LMModel(BaseParams):
         self.updates = opt.apply_gradients(
             zip(clipped_gradients, trainable_vars),
             global_step=self.lm_global_step)
+
+    def update_iterator(self):
+        """Create data iterator."""
+        random.shuffle(self.data_files)
+        lm_set = LMDataset(self.data_files, self.params.lm_batch_size)
+        return lm_set.data_iter
 
     def create_computational_graph(self):
         """Creates the computational graph."""
