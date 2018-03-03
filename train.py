@@ -40,7 +40,9 @@ class Train(BaseParams):
         params = Bunch()
 
         params['batch_size'] = 128
-        params['lm_buck_batch_size'] = [256, 256, 128, 128, 64]
+        #params['lm_buck_batch_size'] = [256, 256, 128, 128, 64]
+        #params['lm_buck_batch_size'] = [128, 128, 64, 64, 32]
+        params['lm_buck_batch_size'] = [128, 128, 128, 128, 128]
         params['buck_batch_size'] = [128, 128, 64, 64, 32]
         params['max_epochs'] = 30
         params['min_steps'] = 25000
@@ -56,7 +58,7 @@ class Train(BaseParams):
         params['train_dir'] = "/scratch"
         params['best_model_dir'] = "/scratch"
 
-        params['lm_prob'] = 0.0  #0.5
+        params['lm_prob'] = 0.0
         params['lm_params'] = LMModel.class_params()
 
         params['run_id'] = 1
