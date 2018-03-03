@@ -173,7 +173,7 @@ class Encoder(BaseParams):
                     print ("Reducing resolution by a factor of %d" %params.skip_step)
                     encoder_input, seq_len = self._get_pyramid_input(
                         encoder_output, seq_len)
-                    resolution_fac *= 2
+                    resolution_fac *= params.skip_step
                 else:
                     encoder_input = encoder_output
 
