@@ -33,7 +33,7 @@ class LMDataset(object):
         """Create iterator for data."""
         data_set = tf.data.TFRecordDataset(data_files)
         data_set = data_set.map(self.get_instance)
-        data_set = data_set.shuffle(buffer_size=5000)
+        data_set = data_set.shuffle(buffer_size=10000)
         data_set = data_set.padded_batch(
             self.batch_size, padded_shapes={'char': [None], 'char_len':[]})
 

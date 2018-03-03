@@ -78,7 +78,7 @@ class Train(BaseParams):
         self.seq2seq_params = model_params
         self.eval_model = None
 
-    def get_data_sets(self):
+    def get_data_sets(self, logging=True):
         params = self.params
         buck_train_sets = []
         total_train_files = 0
@@ -96,11 +96,13 @@ class Train(BaseParams):
             total_train_files += len(buck_train_files)
             buck_train_set = SpeechDataset(dataset_params, buck_train_files, isTraining=True)
             buck_train_sets.append(buck_train_set)
-        print ("Total train files: %d" %total_train_files)
+        if logging:
+            print ("Total train files: %d" %total_train_files)
 
         # Dev set
         dev_files = glob.glob(path.join(params.data_dir, "dev*"))
-        print ("Total dev files: %d" %len(dev_files))
+        if logging:
+            print ("Total dev files: %d" %len(dev_files))
         dev_set = SpeechDataset(dataset_params_def, dev_files,
                                 isTraining=False)
         return buck_train_sets, dev_set
@@ -157,12 +159,6 @@ class Train(BaseParams):
                 iterator = tf.data.Iterator.from_string_handle(
                     handle, buck_train_sets[0].data_set.output_types,
                     buck_train_sets[0].data_set.output_shapes)
-                iter_init_list = []
-                iter_handle_list = []
-                for train_set in buck_train_sets:
-                    iter_init_list.append(train_set.data_iter)
-                    iter_handle_list.append(sess.run(train_set.data_iter.string_handle()))
-
 
                 with tf.variable_scope("model", reuse=None):
                     model = Seq2SeqModel(iterator, True, model_params)
@@ -243,9 +239,10 @@ class Train(BaseParams):
                     sys.stdout.flush()
                     epc_start_time = time.time()
 
-                    active_handle_list = copy.deepcopy(iter_handle_list)
-                    for iter_init in iter_init_list:
-                        sess.run(iter_init.initializer)
+                    active_handle_list = []
+                    for train_set in buck_train_sets:
+                        sess.run(train_set.data_iter.initializer)
+                        active_handle_list.append(sess.run(train_set.data_iter.string_handle()))
 
                     while active_handle_list:
                         task = ("lm" if (params.lm_prob > random.random()) else "asr")
@@ -267,6 +264,7 @@ class Train(BaseParams):
                                     lm_loss = 0.0
                             except tf.errors.OutOfRangeError:
                                 # Create LM dataset again - Another shuffle
+                                lm_model.update_iterator()
                                 sess.run(lm_model.data_iter.initializer)
                                 print ("LM Epoch done %d !!" %lm_steps)
 
@@ -364,6 +362,9 @@ class Train(BaseParams):
                     epc_time = time.time() - epc_start_time
                     print ("\nEPOCH TIME: %s\n" %(str(timedelta(seconds=epc_time))))
                     sys.stdout.flush()
+
+                    print ("Reshuffling ASR training data!")
+                    buck_train_sets, dev_set = self.get_data_sets(logging=False)
 
 
     @classmethod
