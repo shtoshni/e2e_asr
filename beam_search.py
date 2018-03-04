@@ -25,7 +25,6 @@ class BeamSearch(object):
         """Loads the decoder params"""
         return tf_utils.get_matching_variables("rnn_decoder_char", ckpt_path)
 
-
     def map_variables(self, var_dict):
         """Map loaded tensors from names to variables."""
         params = Bunch()
@@ -69,7 +68,6 @@ class BeamSearch(object):
 
         # T x Attn_vec_size
         attn_enc_term = np.matmul(encoder_hidden_states, params.attn_enc_w)
-
 
         def attention(dec_state):
             attn_dec_term = (np.matmul(dec_state, params.attn_dec_w) +
@@ -185,15 +183,14 @@ class BeamSearch(object):
                 output_tuple = (BeamEntry(new_index_seq, dec_state, context_vec),
                                 top_k_scores[idx])
                 if next_elem == data_utils.EOS_ID:
-                    # This sequence is finished.
-                    # Put the output on the final list and reduce beam size
+                    # This sequence is finished. Put the output on the final list
+                    # and reduce beam size
                     final_output_list.append(output_tuple)
                     k -= 1
                 else:
                     new_output_list.append(output_tuple)
 
             output_list = new_output_list
-
             step_count += 1
 
         final_output_list += output_list
