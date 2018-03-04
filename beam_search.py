@@ -1,4 +1,5 @@
 from bunch import Bunch
+from copy import deepcopy
 
 import numpy as np
 
@@ -6,9 +7,13 @@ import tf_utils
 import data_utils
 
 from beam_entry import BeamEntry
-from copy import deepcopy
+from num_utils import softmax
+from basic_lstm import BasicLSTM
+
 
 class BeamSearch(object):
+    """Implementation of beam search for the attention decoder assuming a
+    batch size of 1."""
 
     def __init__(self, ckpt_path, rev_vocab, beam_size=4):
         """Initialize the model."""
@@ -53,6 +58,10 @@ class BeamSearch(object):
 
 
     def calc_attention(self, encoder_hidden_states):
+        """Context vector calculation function. Here the encoder's contribution
+        to attention remains the same and can be computed earlier. We perform
+        currying to return a function that takes as input just the decoder state."""
+
         params = self.params
         if len(encoder_hidden_states.shape) == 3:
             # Squeeze the first dimension
@@ -67,56 +76,30 @@ class BeamSearch(object):
                              params.attn_dec_b)  # T x A
             attn_sum = np.tanh(attn_enc_term + attn_dec_term) # T x A
             attn_logits = np.squeeze(np.matmul(attn_sum, params.attn_v))  # T
-            attn_probs = self.softmax(attn_logits)
+            attn_probs = softmax(attn_logits)
 
             context_vec = np.matmul(attn_probs, encoder_hidden_states)
             return context_vec
 
         return attention
 
-    @staticmethod
-    def sigmoid(x):
-        return 1/(1 + np.exp(-x))
-
-    @staticmethod
-    def softmax(x):
-        """Compute softmax values for each sets of scores in x."""
-        e_x = np.exp(x - np.max(x))
-        return e_x / e_x.sum(axis=0) # only difference
-
-    def dec_lstm_func(self):
-        params = self.params
-        lstm_w = params.lstm_w
-        lstm_b = params.lstm_b
-
-        def call_lstm(x, lstm_state):
-            c, h = lstm_state
-            x_h = np.concatenate((x, h), axis=0)
-            i, j, f, o = np.split(
-                np.matmul(x_h, lstm_w) + lstm_b, 4)
-            f_gate = self.sigmoid(f + 1)   # 1 for forget bias
-            new_c = (np.multiply(c, f_gate) +
-                     np.multiply(self.sigmoid(i), np.tanh(j)))
-            new_h = np.multiply(self.sigmoid(o), np.tanh(new_c))
-            return (new_c, new_h)
-
-        return call_lstm
 
     def top_k_setup(self, encoder_hidden_states):
         params = self.params
-        dec_lstm_call = self.dec_lstm_func()
+        dec_lstm = BasicLSTM(params.lstm_w, params.lstm_b)
         attention_call = self.calc_attention(encoder_hidden_states)
 
         def get_top_k(x, lstm_state, beam_size=self.beam_size):
-            lstm_state = dec_lstm_call(x, lstm_state)
-            attn_c = attention_call(lstm_state[0])
-            attn_dec_state = np.concatenate((lstm_state[0], attn_c), axis=0)
+            dec_state = dec_lstm(x, lstm_state)
+            context_vec = attention_call(dec_state[0])
+            context_dec_comb = np.concatenate((dec_state[0], context_vec), axis=0)
 
-            output_probs = self.softmax(np.matmul(attn_dec_state, params.attn_proj_w) + params.attn_proj_b)
+            output_probs = softmax(np.matmul(context_dec_comb, params.attn_proj_w) +
+                                   params.attn_proj_b)
             top_k_indices = np.argpartition(output_probs, -beam_size)[-beam_size:]
 
             # Return indices, their score, and the lstm state
-            return (top_k_indices, np.log(output_probs[top_k_indices]), lstm_state, attn_c)
+            return (top_k_indices, np.log(output_probs[top_k_indices]), dec_state, context_vec)
 
         return get_top_k
 
@@ -135,8 +118,8 @@ class BeamSearch(object):
         # Maintain a tuple of (output_indices, score, encountered EOS?)
         output_list = []
         final_output_list = []
-        k = self.beam_size
-        step_count = 1
+        k = self.beam_size  # Represents the current beam size
+        step_count = 0
 
         # Run step 0 separately
         top_k_indices, top_k_scores, lstm_state, attn_state = get_top_k_fn(x, (lstm_c, lstm_h), beam_size=k)
@@ -144,30 +127,73 @@ class BeamSearch(object):
             output_tuple = (BeamEntry([top_k_indices[idx]], lstm_state, attn_state), top_k_scores[idx])
             if top_k_indices[idx] == data_utils.EOS_ID:
                 final_output_list.append(output_tuple)
+                # Decrease the beam size once EOS is encountered
                 k -= 1
             else:
                 output_list.append(output_tuple)
 
+        step_count += 1
+
         while step_count < 120 and k > 0:
-            next_contender = []
+            # These lists store the states obtained by running the decoder
+            # for 1 more step with the previous outputs of the beam
+            next_dec_states = []
+            next_context_vecs = []
+
+            score_list = []
+            index_list = []
             for candidate, cand_score in output_list:
-                simple_input = params.embedding[candidate.last_output()]
-                concat_input = np.concatenate((simple_input, candidate.get_attn_state()), axis=0)
+                simple_input = params.embedding[candidate.get_last_output()]
+                concat_input = np.concatenate((simple_input, candidate.get_context_vec()),
+                                              axis=0)
                 x = np.matmul(concat_input, params.inp_w) + params.inp_b
-                top_k_indices, top_k_scores, lstm_state, attn_state =\
-                    get_top_k_fn(x, candidate.get_state(), beam_size=k)
+                top_k_indices, top_k_scores, lstm_state, context_vec =\
+                    get_top_k_fn(x, candidate.get_dec_state(), beam_size=k)
 
-                for idx in xrange(k):
-                    new_cand_score = cand_score + top_k_scores[idx]
-                    new_index_seq = candidate.index_seq + [top_k_indices[idx]]
-                    new_candidate = BeamEntry(new_index_seq, lstm_state, attn_state)
-                    next_contender.append((new_candidate, new_cand_score))
+                next_dec_states.append(lstm_state)
+                next_context_vecs.append(context_vec)
 
-            output_list = sorted(next_contender, key=lambda cand_tuple: cand_tuple[1])[-k:]
-            for idx in reversed(xrange(k)):
-                if output_list[idx][0].last_output() == data_utils.EOS_ID:
-                    final_output_list.append(output_list.pop(idx))
+                index_list.append(top_k_indices)
+                score_list.append(top_k_scores + cand_score)
+
+            # Score of all k**2 continuations
+            all_scores = np.concatenate(score_list, axis=0)
+            # All k**2 continuations
+            all_indices = np.concatenate(index_list, axis=0)
+
+            # Find the top indices among the k^^2 entries
+            top_k_indices = np.argpartition(all_scores, -k)[-k:]
+            next_k_indices = all_indices[top_k_indices]
+            top_k_scores = all_scores[top_k_indices]
+            # The original candidate indices can be found by dividing by k.
+            # Because the indices are of the form - i * k + j, where i
+            # represents the ith output and j represents the jth top index for i
+            orig_cand_indices = np.divide(top_k_indices, k, dtype=np.int32)
+
+            new_output_list = []
+
+            for idx in xrange(k):
+                orig_cand_idx = orig_cand_indices[idx]
+                # BeamEntry of the original candidate
+                orig_cand = output_list[orig_cand_idx][0]
+                next_elem = next_k_indices[idx]
+                # Add the next index to the original sequence
+                new_index_seq = orig_cand.get_index_seq() + [next_elem]
+                dec_state = next_dec_states[orig_cand_idx]
+                context_vec = next_context_vecs[orig_cand_idx]
+
+                output_tuple = (BeamEntry(new_index_seq, dec_state, context_vec),
+                                top_k_scores[idx])
+                if next_elem == data_utils.EOS_ID:
+                    # This sequence is finished.
+                    # Put the output on the final list and reduce beam size
+                    final_output_list.append(output_tuple)
                     k -= 1
+                else:
+                    new_output_list.append(output_tuple)
+
+            output_list = new_output_list
+
             step_count += 1
 
         final_output_list += output_list
