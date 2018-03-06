@@ -265,8 +265,9 @@ class Train(BaseParams):
                             except tf.errors.OutOfRangeError:
                                 # Create LM dataset again - Another shuffle
                                 lm_model.update_iterator()
+                                sess.run(lm_model.epoch_incr)
                                 sess.run(lm_model.data_iter.initializer)
-                                print ("LM Epoch done %d !!" %lm_steps)
+                                print ("LM Epoch done %d !!" %lm_model.epoch.eval)
 
                         else:
                             cur_handle = random.choice(active_handle_list)
@@ -308,7 +309,6 @@ class Train(BaseParams):
                                     err_summary = tf_utils.get_summary(asr_err_cur, "ASR Error")
                                     train_writer.add_summary(err_summary, model.global_step.eval())
 
-                                    previous_errs.append(asr_err_cur)
                                     if model.global_step.eval() >= params.min_steps:
                                         if len(previous_errs) > 3 and asr_err_cur >= max(previous_errs[-3:]):
                                             # Training has already happened for min epochs and the dev
@@ -320,6 +320,7 @@ class Train(BaseParams):
                                                 print ("Learning rate decreased !!")
                                                 sys.stdout.flush()
 
+                                    previous_errs.append(asr_err_cur)
                                     if not self.check_progess(previous_errs):
                                         print ("No improvement in 10 checkpoints")
                                         sys.exit()
