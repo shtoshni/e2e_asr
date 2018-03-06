@@ -28,8 +28,8 @@ class LMModel(BaseParams):
 
         # Optimization params
         params['lm_batch_size'] = 128
-        params['learning_rate'] = 1e-3
-        params['learning_rate_decay_factor'] = 0.5
+        params['lm_learning_rate'] = 1e-4
+        params['lm_learning_rate_decay_factor'] = 0.5
         params['max_gradient_norm'] = 5.0
         params['simple_lm'] = False
 
@@ -50,10 +50,10 @@ class LMModel(BaseParams):
         self.data_files = data_files
         self.data_iter = self.update_iterator()
 
-        self.learning_rate = tf.Variable(float(params.learning_rate),
+        self.learning_rate = tf.Variable(float(params.lm_learning_rate),
                                          trainable=False)
         self.learning_rate_decay_op = self.learning_rate.assign(
-            self.learning_rate * params.learning_rate_decay_factor)
+            self.learning_rate * params.lm_learning_rate_decay_factor)
 
         # Number of gradient updates performed
         self.lm_global_step = tf.Variable(0, trainable=False)
