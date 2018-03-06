@@ -20,6 +20,7 @@ class BeamSearch(object):
         self.params = self.map_variables(self.get_model_params(ckpt_path))
         self.rev_vocab = rev_vocab
         self.beam_size = beam_size
+        print ("Using a beam size of %d" %self.beam_size)
 
     def get_model_params(self, ckpt_path):
         """Loads the decoder params"""

@@ -27,6 +27,7 @@ import tensorflow as tf
 import data_utils
 from attn_decoder import AttnDecoder
 from encoder import Encoder
+from eval_model import Eval
 from lm_encoder import LMEncoder
 from lm_model import LMModel
 from seq2seq_model import Seq2SeqModel
@@ -44,6 +45,7 @@ def parse_options():
     Seq2SeqModel.add_parse_options(parser)
     LMModel.add_parse_options(parser)
 
+    parser.add_argument("-beam_size", default=4, type=int, help="Beam size")
     parser.add_argument("-eval_dev", default=False, action="store_true",
                         help="Get dev set results using the last saved model")
     parser.add_argument("-test", default=False, action="store_true",
@@ -154,6 +156,7 @@ def process_args(options):
     proc_options.seq2seq_params = seq2seq_params
     proc_options.eval_dev = options['eval_dev']
     proc_options.test = options['test']
+    proc_options.beam_size = options['beam_size']
 
     return proc_options
 
@@ -171,25 +174,46 @@ def launch_eval(options):
             _, dev_set = trainer.get_data_sets()
         else:
             dataset_params = Bunch()
-            dataset_params.batch_size = options.train_params.batch_size
+            dataset_params.batch_size = 1
             dataset_params.feat_length = options.train_params.feat_length
 
             test_files = glob.glob(path.join(options.train_params.data_dir, "eval2000*"))
             print ("Total test files: %d" %len(test_files))
             dev_set = SpeechDataset(dataset_params, test_files,
                                     isTraining=False)
-        trainer.create_eval_model(dev_set, standalone=True)
+
+        with tf.variable_scope("model"):
+            print ("Creating dev model")
+            dev_seq2seq_params = copy.deepcopy(options.seq2seq_params)
+            dev_seq2seq_params.tasks = {'char'}
+            dev_seq2seq_params.num_layers = {'char': dev_seq2seq_params.num_layers['char']}
+            model_dev = Seq2SeqModel(dev_set.data_iter, isTraining=False,
+                                     params=dev_seq2seq_params)
+
+            params = Bunch()
+            params.best_model_dir = trainer.params.best_model_dir
+            params.vocab_dir = trainer.params.vocab_dir
+            params.beam_size = options.beam_size
+
+            eval_model = Eval(model_dev, params=params)
 
         ckpt = tf.train.get_checkpoint_state(options.train_params.train_dir)
         ckpt_best = tf.train.get_checkpoint_state(options.train_params.best_model_dir)
+        ckpt_path = None
         if ckpt_best:
-            tf.train.Saver().restore(sess, ckpt_best.model_checkpoint_path)
+            ckpt_path = ckpt_best.model_checkpoint_path
+            tf.train.Saver().restore(sess, ckpt_path)
         elif ckpt:
-            tf.train.Saver().restore(sess, ckpt.model_checkpoint_path)
+            ckpt_path = ckpt.model_checkpoint_path
+            tf.train.Saver().restore(sess, ckpt_path)
         else:
             sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
 
-        trainer.eval_model.asr_decode(sess)
+        print ("Using the model from: %s" %ckpt_path)
+        start_time = time.time()
+        eval_model.beam_search_decode(sess, ckpt_path=ckpt_path)
+        decoding_time = time.time() - start_time
+        print ("Total decoding time: %s" %timedelta(seconds=decoding_time))
 
 
 if __name__ == "__main__":
@@ -198,4 +222,3 @@ if __name__ == "__main__":
         launch_eval(options)
     else:
         launch_train(options)
-
