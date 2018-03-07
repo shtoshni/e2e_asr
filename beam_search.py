@@ -15,18 +15,27 @@ class BeamSearch(object):
     """Implementation of beam search for the attention decoder assuming a
     batch size of 1."""
 
-    def __init__(self, ckpt_path, rev_vocab, beam_size=4):
+    def __init__(self, ckpt_path, rev_vocab, beam_size=4, lm_path=None,
+                 lm_weight=0.2, word_ins_penalty=0.0):
         """Initialize the model."""
-        self.params = self.map_variables(self.get_model_params(ckpt_path))
+        self.params = self.map_dec_variables(self.get_model_params(ckpt_path))
         self.rev_vocab = rev_vocab
         self.beam_size = beam_size
+
+        self.use_lm = False
+        if lm_path is not None:
+            self.lm_params = self.map_lm_variables(self.get_model_params(lm_path))
+            self.use_lm = True
+        self.lm_weight = lm_weight
+
+        self.word_ins_penalty = word_ins_penalty
         print ("Using a beam size of %d" %self.beam_size)
 
     def get_model_params(self, ckpt_path):
         """Loads the decoder params"""
         return tf_utils.get_matching_variables("rnn_decoder_char", ckpt_path)
 
-    def map_variables(self, var_dict):
+    def map_dec_variables(self, var_dict):
         """Map loaded tensors from names to variables."""
         params = Bunch()
         params.lstm_w = var_dict[
@@ -52,6 +61,27 @@ class BeamSearch(object):
         params.attn_enc_w = np.squeeze(var_dict["model/rnn_decoder_char/AttnW"])
 
         params.attn_v = var_dict["model/rnn_decoder_char/AttnV"]
+
+        params.embedding = var_dict["model/rnn_decoder_char/decoder/embedding"]
+        return params
+
+    def map_lm_variables(self, var_dict):
+        """Map loaded tensors from names to variables."""
+        params = Bunch()
+        params.lstm_w = var_dict[
+            "model/rnn_decoder_char/rnn/basic_lstm_cell/kernel"]
+        params.lstm_b = var_dict[
+            "model/rnn_decoder_char/rnn/basic_lstm_cell/bias"]
+
+        params.inp_w = var_dict[
+            "model/rnn_decoder_char/rnn/InputProjection/kernel"]
+        params.inp_b = var_dict[
+            "model/rnn_decoder_char/rnn/InputProjection/bias"]
+
+        params.attn_proj_w = var_dict[
+            "model/rnn_decoder_char/rnn/AttnOutputProjection/kernel"]
+        params.attn_proj_b = var_dict[
+            "model/rnn_decoder_char/rnn/AttnOutputProjection/bias"]
 
         params.embedding = var_dict["model/rnn_decoder_char/decoder/embedding"]
         return params
@@ -82,14 +112,54 @@ class BeamSearch(object):
 
         return attention
 
+    def top_k_setup_with_lm(self, encoder_hidden_states):
+        params = self.params
+        lm_params = self.lm_params
+
+        # Set up decoder components
+        dec_lstm = BasicLSTM(params.lstm_w, params.lstm_b)
+        attention_call = self.calc_attention(encoder_hidden_states)
+
+        # Set up LM components
+        lm_lstm = BasicLSTM(lm_params.lstm_w, lm_params.lstm_b)
+        # LM uses a zero attn vector
+        zero_attn = np.zeros(encoder_hidden_states.shape[1])
+
+        def get_top_k(x_dec, x_lm, state_list, beam_size=self.beam_size):
+            dec_state, lm_state = state_list
+
+            dec_state = dec_lstm(x_dec, dec_state)
+            context_vec = attention_call(dec_state[0])
+            context_dec_comb = np.concatenate((dec_state[0], context_vec), axis=0)
+            output_dec_probs = softmax(np.matmul(context_dec_comb, params.attn_proj_w) +
+                                       params.attn_proj_b)
+            log_dec_probs = np.log(output_dec_probs)
+
+            lm_state = lm_lstm(x_lm, lm_state)
+            context_lm_comb = np.concatenate((lm_state[0], zero_attn), axis=0)
+            output_lm_probs = softmax(np.matmul(context_lm_comb, lm_params.attn_proj_w) +
+                                      lm_params.attn_proj_b)
+            log_lm_probs = np.log(output_lm_probs)
+
+            combined_log_probs = log_dec_probs + self.lm_weight * log_lm_probs
+
+            top_k_indices = np.argpartition(combined_log_probs, -beam_size)[-beam_size:]
+
+            # Return indices, their score, and the lstm state
+            return (top_k_indices, combined_log_probs[top_k_indices], [dec_state,
+                    lm_state], context_vec)
+
+        return get_top_k
+
 
     def top_k_setup(self, encoder_hidden_states):
         params = self.params
         dec_lstm = BasicLSTM(params.lstm_w, params.lstm_b)
         attention_call = self.calc_attention(encoder_hidden_states)
 
-        def get_top_k(x, lstm_state, beam_size=self.beam_size):
-            dec_state = dec_lstm(x, lstm_state)
+        def get_top_k(x, state_list, beam_size=self.beam_size):
+            dec_state = state_list[0]
+            dec_state = dec_lstm(x, dec_state)
             context_vec = attention_call(dec_state[0])
             context_dec_comb = np.concatenate((dec_state[0], context_vec), axis=0)
 
@@ -98,7 +168,7 @@ class BeamSearch(object):
             top_k_indices = np.argpartition(output_probs, -beam_size)[-beam_size:]
 
             # Return indices, their score, and the lstm state
-            return (top_k_indices, np.log(output_probs[top_k_indices]), dec_state, context_vec)
+            return (top_k_indices, np.log(output_probs[top_k_indices]), [dec_state], context_vec)
 
         return get_top_k
 
@@ -106,13 +176,21 @@ class BeamSearch(object):
     def __call__(self, encoder_hidden_states):
         """Beam search for batch_size=1"""
         params = self.params
+        if self.use_lm:
+            lm_params = self.lm_params
 
-        get_top_k_fn = self.top_k_setup(encoder_hidden_states)
+        if self.use_lm:
+            get_top_k_fn = self.top_k_setup_with_lm(encoder_hidden_states)
+        else:
+            get_top_k_fn = self.top_k_setup(encoder_hidden_states)
 
         x = params.embedding[data_utils.GO_ID]
+        if self.use_lm:
+            x_lm = lm_params.embedding[data_utils.GO_ID]
         h_size = params.lstm_w.shape[1]/4
 
-        lstm_c, lstm_h = np.zeros(h_size), np.zeros(h_size)
+        zero_state = (np.zeros(h_size), np.zeros(h_size))
+        zero_attn = np.zeros(encoder_hidden_states.shape[1])
 
         # Maintain a tuple of (output_indices, score, encountered EOS?)
         output_list = []
@@ -121,9 +199,14 @@ class BeamSearch(object):
         step_count = 0
 
         # Run step 0 separately
-        top_k_indices, top_k_scores, lstm_state, attn_state = get_top_k_fn(x, (lstm_c, lstm_h), beam_size=k)
+        if self.use_lm:
+            top_k_indices, top_k_scores, state_list, attn_state =\
+                get_top_k_fn(x, x_lm, [zero_state, zero_state], beam_size=k)
+        else:
+            top_k_indices, top_k_scores, state_list, attn_state =\
+                get_top_k_fn(x, [zero_state], beam_size=k)
         for idx in xrange(top_k_indices.shape[0]):
-            output_tuple = (BeamEntry([top_k_indices[idx]], lstm_state, attn_state), top_k_scores[idx])
+            output_tuple = (BeamEntry([top_k_indices[idx]], state_list, attn_state), top_k_scores[idx])
             if top_k_indices[idx] == data_utils.EOS_ID:
                 final_output_list.append(output_tuple)
                 # Decrease the beam size once EOS is encountered
@@ -132,7 +215,6 @@ class BeamSearch(object):
                 output_list.append(output_tuple)
 
         step_count += 1
-
         while step_count < 120 and k > 0:
             # These lists store the states obtained by running the decoder
             # for 1 more step with the previous outputs of the beam
@@ -146,10 +228,19 @@ class BeamSearch(object):
                 concat_input = np.concatenate((simple_input, candidate.get_context_vec()),
                                               axis=0)
                 x = np.matmul(concat_input, params.inp_w) + params.inp_b
-                top_k_indices, top_k_scores, lstm_state, context_vec =\
-                    get_top_k_fn(x, candidate.get_dec_state(), beam_size=k)
 
-                next_dec_states.append(lstm_state)
+                if self.use_lm:
+                    lm_emb_input = lm_params.embedding[candidate.get_last_output()]
+                    concat_lm = np.concatenate((lm_emb_input, zero_attn), axis=0)
+                    x_lm = np.matmul(concat_lm, lm_params.inp_w) + lm_params.inp_b
+
+                    top_k_indices, top_k_scores, state_list, context_vec =\
+                        get_top_k_fn(x, x_lm, candidate.get_dec_state(), beam_size=k)
+                else:
+                    top_k_indices, top_k_scores, state_list, context_vec =\
+                        get_top_k_fn(x, candidate.get_dec_state(), beam_size=k)
+
+                next_dec_states.append(state_list)
                 next_context_vecs.append(context_vec)
 
                 index_list.append(top_k_indices)
