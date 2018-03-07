@@ -117,9 +117,11 @@ class Eval(BaseParams):
         beam_search = BeamSearch(ckpt_path, self.rev_char_vocab, beam_size=params.beam_size)
         rev_normalizer = swbd_utils.reverse_swbd_normalizer()
 
-        gold_asr_file = path.join(params.best_model_dir, 'gold_asr.txt')
-        decoded_asr_file = path.join(params.best_model_dir, 'decoded_asr.txt')
-        raw_asr_file = path.join(params.best_model_dir, 'raw_asr.txt')
+        gold_asr_file = path.join(params.best_model_dir, 'gold.txt')
+        decoded_asr_file = path.join(params.best_model_dir, 'decoded_' +
+                                     str(params.beam_size) + '.txt')
+        raw_asr_file = path.join(params.best_model_dir, 'raw_' +
+                                 str(params.beam_size) + '.txt')
 
         total_errors, total_words = 0, 0
         # Initialize the dev iterator
