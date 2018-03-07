@@ -175,7 +175,7 @@ def launch_eval(options):
             _, dev_set = trainer.get_data_sets()
         else:
             dataset_params = Bunch()
-            dataset_params.batch_size = 1
+            dataset_params.batch_size = 64
             dataset_params.feat_length = options.train_params.feat_length
 
             test_files = glob.glob(path.join(options.train_params.data_dir, "eval2000*"))

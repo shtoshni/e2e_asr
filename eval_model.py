@@ -5,6 +5,7 @@ from __future__ import division
 
 import math
 import os
+import sys
 import multiprocessing as mp
 
 from os import path
@@ -156,7 +157,11 @@ class Eval(BaseParams):
 
         beam_search = BeamSearch(ckpt_path, self.rev_char_vocab,
                                  search_params=beam_search_params)
-        beam_output_list = [beam_search(hidden_states) for hidden_states in hidden_states_list]
+        beam_output_list = []
+        for idx, hidden_states in enumerate(hidden_states_list):
+            beam_output_list.append(beam_search(hidden_states))
+            if (idx + 1) % 100 == 0:
+                print ("Counter: %d" %(idx + 1))
 
         beam_size = beam_search_params.beam_size
         gold_asr_file = path.join(params.best_model_dir, 'gold.txt')
