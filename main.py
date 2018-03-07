@@ -34,7 +34,7 @@ from seq2seq_model import Seq2SeqModel
 from speech_dataset import SpeechDataset
 from lm_dataset import LMDataset
 from train import Train
-
+from beam_search import BeamSearch
 
 def parse_options():
     parser = argparse.ArgumentParser()
@@ -45,7 +45,8 @@ def parse_options():
     Seq2SeqModel.add_parse_options(parser)
     LMModel.add_parse_options(parser)
 
-    parser.add_argument("-beam_size", default=4, type=int, help="Beam size")
+    BeamSearch.add_parse_options(parser)
+
     parser.add_argument("-eval_dev", default=False, action="store_true",
                         help="Get dev set results using the last saved model")
     parser.add_argument("-test", default=False, action="store_true",
@@ -53,7 +54,6 @@ def parse_options():
     args = parser.parse_args()
     args = vars(args)
     return process_args(args)
-
 
 
 def process_args(options):
@@ -114,7 +114,8 @@ def process_args(options):
 
     # Process training/eval params
     train_params = Train.get_updated_params(options)
-
+    # Process beam search params
+    beam_search_params = BeamSearch.get_updated_params(options)
     # Process model params
     encoder_params = Encoder.get_updated_params(options)
     decoder_params_base = AttnDecoder.get_updated_params(options)
@@ -153,10 +154,10 @@ def process_args(options):
 
     proc_options = Bunch()
     proc_options.train_params = train_params
+    proc_options.beam_search_params = beam_search_params
     proc_options.seq2seq_params = seq2seq_params
     proc_options.eval_dev = options['eval_dev']
     proc_options.test = options['test']
-    proc_options.beam_size = options['beam_size']
 
     return proc_options
 
@@ -178,6 +179,7 @@ def launch_eval(options):
             dataset_params.feat_length = options.train_params.feat_length
 
             test_files = glob.glob(path.join(options.train_params.data_dir, "eval2000*"))
+            #test_files = glob.glob(path.join(options.train_params.data_dir, "dev_1k.4*"))
             print ("Total test files: %d" %len(test_files))
             dev_set = SpeechDataset(dataset_params, test_files,
                                     isTraining=False)
@@ -193,7 +195,6 @@ def launch_eval(options):
             params = Bunch()
             params.best_model_dir = trainer.params.best_model_dir
             params.vocab_dir = trainer.params.vocab_dir
-            params.beam_size = options.beam_size
 
             eval_model = Eval(model_dev, params=params)
 
@@ -211,7 +212,8 @@ def launch_eval(options):
 
         print ("Using the model from: %s" %ckpt_path)
         start_time = time.time()
-        eval_model.beam_search_decode(sess, ckpt_path=ckpt_path)
+        eval_model.beam_search_decode(sess, ckpt_path,
+                                      beam_search_params=options.beam_search_params)
         decoding_time = time.time() - start_time
         print ("Total decoding time: %s" %timedelta(seconds=decoding_time))
 

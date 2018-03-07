@@ -9,27 +9,41 @@ import data_utils
 from beam_entry import BeamEntry
 from num_utils import softmax
 from basic_lstm import BasicLSTM
+from base_params import BaseParams
 
 
-class BeamSearch(object):
+class BeamSearch(BaseParams):
     """Implementation of beam search for the attention decoder assuming a
     batch size of 1."""
 
-    def __init__(self, ckpt_path, rev_vocab, beam_size=4, lm_path=None,
-                 lm_weight=0.2, word_ins_penalty=0.0):
+    @classmethod
+    def class_params(cls):
+        """Decoder class parameters."""
+        params = Bunch()
+        params['beam_size'] = 4
+        params['lm_weight'] = 0.0
+        params['lm_path'] = ""
+        params['word_ins_penalty'] = 0.0
+
+        return params
+
+    def __init__(self, ckpt_path, rev_vocab, search_params=None):
         """Initialize the model."""
-        self.params = self.map_dec_variables(self.get_model_params(ckpt_path))
+        self.dec_params = self.map_dec_variables(self.get_model_params(ckpt_path))
         self.rev_vocab = rev_vocab
-        self.beam_size = beam_size
 
-        self.use_lm = False
-        if lm_path is not None:
-            self.lm_params = self.map_lm_variables(self.get_model_params(lm_path))
+        if search_params is None:
+            self.search_params = self.class_params()
+        else:
+            self.search_params = search_params
+
+        if self.search_params.lm_path is None:
+            self.use_lm = False
+        else:
             self.use_lm = True
-        self.lm_weight = lm_weight
-
-        self.word_ins_penalty = word_ins_penalty
-        print ("Using a beam size of %d" %self.beam_size)
+            self.lm_params = self.map_lm_variables(
+                self.get_model_params(self.search_params.lm_path))
+        print ("Using a beam size of %d" %self.search_params.beam_size)
 
     def get_model_params(self, ckpt_path):
         """Loads the decoder params"""
@@ -92,7 +106,7 @@ class BeamSearch(object):
         to attention remains the same and can be computed earlier. We perform
         currying to return a function that takes as input just the decoder state."""
 
-        params = self.params
+        params = self.dec_params
         if len(encoder_hidden_states.shape) == 3:
             # Squeeze the first dimension
             encoder_hidden_states = np.squeeze(encoder_hidden_states, axis=0)
@@ -113,8 +127,9 @@ class BeamSearch(object):
         return attention
 
     def top_k_setup_with_lm(self, encoder_hidden_states):
-        params = self.params
+        params = self.dec_params
         lm_params = self.lm_params
+        search_params = self.search_params
 
         # Set up decoder components
         dec_lstm = BasicLSTM(params.lstm_w, params.lstm_b)
@@ -125,7 +140,7 @@ class BeamSearch(object):
         # LM uses a zero attn vector
         zero_attn = np.zeros(encoder_hidden_states.shape[1])
 
-        def get_top_k(x_dec, x_lm, state_list, beam_size=self.beam_size):
+        def get_top_k(x_dec, x_lm, state_list, beam_size=search_params.beam_size):
             dec_state, lm_state = state_list
 
             dec_state = dec_lstm(x_dec, dec_state)
@@ -141,7 +156,7 @@ class BeamSearch(object):
                                       lm_params.attn_proj_b)
             log_lm_probs = np.log(output_lm_probs)
 
-            combined_log_probs = log_dec_probs + self.lm_weight * log_lm_probs
+            combined_log_probs = log_dec_probs + search_params.lm_weight * log_lm_probs
 
             top_k_indices = np.argpartition(combined_log_probs, -beam_size)[-beam_size:]
 
@@ -153,11 +168,13 @@ class BeamSearch(object):
 
 
     def top_k_setup(self, encoder_hidden_states):
-        params = self.params
+        params = self.dec_params
+        search_params = self.search_params
+
         dec_lstm = BasicLSTM(params.lstm_w, params.lstm_b)
         attention_call = self.calc_attention(encoder_hidden_states)
 
-        def get_top_k(x, state_list, beam_size=self.beam_size):
+        def get_top_k(x, state_list, beam_size=search_params.beam_size):
             dec_state = state_list[0]
             dec_state = dec_lstm(x, dec_state)
             context_vec = attention_call(dec_state[0])
@@ -175,7 +192,9 @@ class BeamSearch(object):
 
     def __call__(self, encoder_hidden_states):
         """Beam search for batch_size=1"""
-        params = self.params
+        params = self.dec_params
+        search_params = self.search_params
+
         if self.use_lm:
             lm_params = self.lm_params
 
@@ -195,7 +214,7 @@ class BeamSearch(object):
         # Maintain a tuple of (output_indices, score, encountered EOS?)
         output_list = []
         final_output_list = []
-        k = self.beam_size  # Represents the current beam size
+        k = search_params.beam_size  # Represents the current beam size
         step_count = 0
 
         # Run step 0 separately
@@ -290,3 +309,15 @@ class BeamSearch(object):
         best_output = max(final_output_list, key=lambda output_tuple: output_tuple[1])
         output_seq = best_output[0].get_index_seq()
         return np.stack(output_seq, axis=0)
+
+    @classmethod
+    def add_parse_options(cls, parser):
+        """Add beam search specific arguments."""
+        # Decoder params
+        parser.add_argument("-beam_size", default=4, type=int, help="Beam size")
+        parser.add_argument("-lm_weight", default=0.0, type=float, help="LM weight in decoding")
+        parser.add_argument("-lm_path", default="/share/data/speech/shtoshni/research/asr_multi/"
+                            "code/lm/models/pretrain_simple_lm/lm.ckpt-222000", type=str,
+                            help="LM ckpt path")
+        parser.add_argument("-word_ins_penalty", default=0.0, type=float,
+                            help="Word insertion penalty")

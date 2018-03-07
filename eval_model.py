@@ -29,7 +29,6 @@ class Eval(BaseParams):
     @classmethod
     def class_params(cls):
         params = Bunch()
-        params['beam_size'] = 1
         params['best_model_dir'] = "/scratch"
         params['vocab_dir'] = "/share/data/speech/shtoshni/research/datasets/asr_swbd/lang/vocab"
         return params
@@ -110,20 +109,19 @@ class Eval(BaseParams):
         print ("Score: %f" %score)
         return score
 
-    def beam_search_decode(self, sess, ckpt_path, lm_weight=0.0):
+    def beam_search_decode(self, sess, ckpt_path, beam_search_params=None):
         """Beam search decoding done via numpy implementation of attention decoder."""
         params = self.params
 
-        beam_search = BeamSearch(ckpt_path, self.rev_char_vocab, beam_size=params.beam_size,
-                                 lm_path="/scratch2/asr_multi/lm_models/best_models/run_id_702/lm.ckpt-222000",
-                                 lm_weight=lm_weight)
+        beam_search = BeamSearch(ckpt_path, self.rev_char_vocab,
+                                 search_params=beam_search_params)
+        beam_size = beam_search_params.beam_size
         rev_normalizer = swbd_utils.reverse_swbd_normalizer()
 
         gold_asr_file = path.join(params.best_model_dir, 'gold.txt')
         decoded_asr_file = path.join(params.best_model_dir, 'decoded_' +
-                                     str(params.beam_size) + '.txt')
-        raw_asr_file = path.join(params.best_model_dir, 'raw_' +
-                                 str(params.beam_size) + '.txt')
+                                     str(beam_size) + '.txt')
+        raw_asr_file = path.join(params.best_model_dir, 'raw_' + str(beam_size) + '.txt')
 
         total_errors, total_words = 0, 0
         # Initialize the dev iterator
@@ -161,9 +159,9 @@ class Eval(BaseParams):
                                      '{}\n'.format(' '.join(decoded_words)))
                     counter += 1
 
-                    if counter % 25 == 0:
+                    if counter % 100 == 0:
                         print ("Counter: %d" %counter)
-                        break
+                        #break
 
                 except tf.errors.OutOfRangeError:
                     break
