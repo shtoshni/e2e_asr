@@ -126,3 +126,5 @@ class LMModel(BaseParams):
         # LM params
         parser.add_argument("-simple_lm", default=False, action="store_true",
                             help="Whether simple LM should be used or the attn ZEROED variant")
+        parser.add_argument("-lm_learning_rate", default=0.0001, type=float,
+                            help="LM learning rate")
