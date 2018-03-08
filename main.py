@@ -179,7 +179,7 @@ def launch_eval(options):
             dataset_params.feat_length = options.train_params.feat_length
 
             test_files = glob.glob(path.join(options.train_params.data_dir, "eval2000*"))
-            #test_files = glob.glob(path.join(options.train_params.data_dir, "dev_1k.4*"))
+            #test_files = glob.glob(path.join(options.train_params.data_dir, "dev_1k.1*"))
             print ("Total test files: %d" %len(test_files))
             dev_set = SpeechDataset(dataset_params, test_files,
                                     isTraining=False)
@@ -212,10 +212,12 @@ def launch_eval(options):
 
         print ("Using the model from: %s" %ckpt_path)
         start_time = time.time()
-        eval_model.beam_search_decode(sess, ckpt_path,
-                                      beam_search_params=options.beam_search_params)
+        asr_perf, out_file = eval_model.beam_search_decode(
+            sess, ckpt_path, beam_search_params=options.beam_search_params, get_out_file=True)
         decoding_time = time.time() - start_time
         print ("Total decoding time: %s" %timedelta(seconds=decoding_time))
+
+        return asr_perf, out_file
 
 
 if __name__ == "__main__":

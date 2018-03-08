@@ -37,8 +37,9 @@ class BeamSearch(BaseParams):
         else:
             self.search_params = search_params
 
-        if self.search_params.lm_path is None:
+        if self.search_params.lm_path is None or (self.search_params.lm_weight == 0.0):
             self.use_lm = False
+            print ("No separate LM used")
         else:
             self.use_lm = True
             self.lm_params = self.map_lm_variables(

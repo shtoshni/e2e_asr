@@ -115,7 +115,7 @@ class Eval(BaseParams):
         return score
 
 
-    def beam_search_decode(self, sess, ckpt_path, beam_search_params=None):
+    def beam_search_decode(self, sess, ckpt_path, beam_search_params=None, get_out_file=False):
         """Beam search decoding done via numpy implementation of attention decoder."""
         params = self.params
 
@@ -126,6 +126,7 @@ class Eval(BaseParams):
 
             hidden_states_list, utt_id_list, gold_id_list = [], [], []
             sess.run(self.model.data_iter.initializer)
+            #counter = 0
             while True:
                 try:
                     char_enc_layer = self.model.params.num_layers["char"]
@@ -140,7 +141,9 @@ class Eval(BaseParams):
                         hidden_states_list.append(encoder_hidden_states[idx, :seq_lens[idx], :])
                         utt_id_list.append(utt_ids[idx])
                         gold_id_list.append(np.array(gold_ids[1:, idx]))  # Ignore the GO_ID
-
+                        #counter += 1
+                    #if counter > 200:
+                    #    break
                 except tf.errors.OutOfRangeError:
                     break
 
@@ -191,7 +194,10 @@ class Eval(BaseParams):
 
         print ("Output at: %s" %str(raw_asr_file))
         print ("Score: %f" %score)
-        return score
+        if get_out_file:
+            return score, raw_asr_file
+        else:
+            return score
 
     @staticmethod
     def wp_array_to_sent(wp_array, reverse_char_vocab, normalizer):
