@@ -100,6 +100,9 @@ class LMModel(BaseParams):
         # First encode input
         if self.params.simple_lm:
             print ("Using a simple LM model")
+            w_proj = tf.get_variable("W_proj", shape=[self.encoder.params.hidden_size,
+                                                      self.encoder.params.vocab_size], dtype=tf.float32)
+            b_proj = tf.get_variable("b_proj", shape=[self.encoder.params.vocab_size], dtype=tf.float32)
             with tf.variable_scope("rnn_decoder_char", reuse=True):
                 emb_inputs, _ = self.encoder.prepare_decoder_input(self.encoder_inputs[:-1, :])
                 self.outputs, _ = \
@@ -107,6 +110,7 @@ class LMModel(BaseParams):
                                       sequence_length=self.seq_len,
                                       dtype=tf.float32, time_major=True)
                 self.outputs = tf.reshape(self.outputs, [-1, self.encoder.cell.output_size])
+                self.outputs = tf.matmul(self.outputs, w_proj) + b_proj
         else:
             self.outputs = self.encoder(self.encoder_inputs, self.seq_len)
         self.losses = LossUtils.cross_entropy_loss(
