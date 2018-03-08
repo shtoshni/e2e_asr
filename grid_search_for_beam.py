@@ -1,3 +1,5 @@
+from __future__ import print_function
+
 from os import path
 
 import argparse
@@ -31,9 +33,13 @@ def parse_output(output_str):
             score = float(out_line.split(score_pattern)[1])
     return score, out_file
 
+
 def grid_search(args):
     """Perform grid search on beam configurations and run the best config on test set."""
     base_cmd = read_command(args.cmd_file)
+    cmd_dir = path.dirname(args.cmd_file)
+
+    perf_file = path.join(cmd_dir, "perf.txt")
 
     dev_cmd = base_cmd + " -eval_dev "
     # Store best performances
@@ -46,32 +52,49 @@ def grid_search(args):
     else:
         lm_weight_options = [0]
 
-    for beam_size in [2, 4, 8, 16, 32]:
-    #for beam_size in [2]:
-        print ("\nBeam size: %d" %beam_size)
-        beam_best_perf = 1.0
-        for lm_weight in lm_weight_options:
-            exec_cmd = (dev_cmd + " -beam_size " + str(beam_size)
-                        + " -lm_weight " + str(lm_weight))
+    perf_dict = {}
+    if path.isfile(perf_file):
+        with open(perf_file, "r") as perf_f:
+            for line in perf_f.readlines():
+                beam_size, lm_weight, asr_perf = line.strip().split()
+                # Prepare the keys
+                beam_size = int(beam_size)
+                lm_weight = round(float(lm_weight), 2)
+                perf_dict[(beam_size, lm_weight)] = float(asr_perf)
+        print ("Loaded %d entries from grid search" %(len(perf_dict)))
 
-            output = subprocess.check_output(exec_cmd, shell=True)
-            asr_perf, out_file = parse_output(output)
-            print ("ASR Error: %.4f, Beam size: %d, lm weight: %.2f" %
-                   (asr_perf, beam_size, lm_weight))
+    with open(perf_file, "a") as perf_f:
+        for beam_size in [2, 4, 8, 16, 32]:
+        #for beam_size in [2]:
+            print ("\nBeam size: %d" %beam_size)
+            beam_best_perf = 1.0
+            for lm_weight in lm_weight_options:
+                query_key = (beam_size, round(lm_weight, 2))
+                if perf_dict.has_key(query_key):
+                    print ("From previous exec: ", end="")
+                    asr_perf = perf_dict[query_key]
+                else:
+                    exec_cmd = (dev_cmd + " -beam_size " + str(beam_size)
+                                + " -lm_weight " + str(lm_weight))
+                    output = subprocess.check_output(exec_cmd, shell=True)
+                    asr_perf, _= parse_output(output)
+                    perf_f.write("%d %.2f %f\n" %(beam_size, lm_weight, asr_perf))
 
-            if beam_best_perf > asr_perf:
-                beam_best_perf = asr_perf
-            else:
-                # The performance for a given beam size can only go downhill
-                # by increasing lm_weight further
-                print ("Not exploring further increasing lm_weight")
-                break
+                print ("ASR Error: %.4f, Beam size: %d, lm weight: %.2f" %
+                       (asr_perf, beam_size, lm_weight))
+                if beam_best_perf > asr_perf:
+                    beam_best_perf = asr_perf
+                else:
+                    # The performance for a given beam size can only go downhill
+                    # by increasing lm_weight further
+                    print ("Not exploring further increasing lm_weight")
+                    break
 
-            if best_asr_perf > asr_perf:
-                print ("Best config updated!!")
-                best_asr_perf = asr_perf
-                best_beam_size = beam_size
-                best_lm_weight = lm_weight
+                if best_asr_perf > asr_perf:
+                    print ("Best config updated!!")
+                    best_asr_perf = asr_perf
+                    best_beam_size = beam_size
+                    best_lm_weight = lm_weight
 
     test_cmd = (base_cmd + " -test " + " -beam_size " + str(best_beam_size) +
                 " -lm_weight " + str(best_lm_weight))
@@ -79,7 +102,6 @@ def grid_search(args):
     _, out_file = parse_output(output)
 
     # Run the score.sh command finally
-    cmd_dir = path.dirname(args.cmd_file)
     out_dir = path.join(cmd_dir, "final_eval")
 
     subprocess.call("mkdir -p " + out_dir, shell=True)
