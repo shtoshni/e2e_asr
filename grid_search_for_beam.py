@@ -4,6 +4,7 @@ from os import path
 
 import argparse
 import subprocess
+import sys
 
 
 def parse_options():
@@ -62,11 +63,14 @@ def grid_search(args):
                 lm_weight = round(float(lm_weight), 2)
                 perf_dict[(beam_size, lm_weight)] = float(asr_perf)
         print ("Loaded %d entries from grid search" %(len(perf_dict)))
+        sys.stdout.flush()
 
     with open(perf_file, "a") as perf_f:
         for beam_size in [2, 4, 8, 16, 32]:
         #for beam_size in [2]:
             print ("\nBeam size: %d" %beam_size)
+            sys.stdout.flush()
+
             beam_best_perf = 1.0
             for lm_weight in lm_weight_options:
                 query_key = (beam_size, round(lm_weight, 2))
@@ -82,16 +86,19 @@ def grid_search(args):
 
                 print ("ASR Error: %.4f, Beam size: %d, lm weight: %.2f" %
                        (asr_perf, beam_size, lm_weight))
+                sys.stdout.flush()
                 if beam_best_perf > asr_perf:
                     beam_best_perf = asr_perf
                 else:
                     # The performance for a given beam size can only go downhill
                     # by increasing lm_weight further
                     print ("Not exploring further increasing lm_weight")
+                    sys.stdout.flush()
                     break
 
                 if best_asr_perf > asr_perf:
                     print ("Best config updated!!")
+                    sys.stdout.flush()
                     best_asr_perf = asr_perf
                     best_beam_size = beam_size
                     best_lm_weight = lm_weight
