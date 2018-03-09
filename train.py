@@ -178,6 +178,7 @@ class Train(BaseParams):
                             model_params.decoder_params['char'])
                         lm_params.encoder_hidden_size =\
                             2 * model_params.encoder_params.hidden_size
+                        lm_params.samp_prob = params.lm_params.lm_samp_prob
                         lm_model = LMModel(LMEncoder(lm_params), data_files=lm_files,
                                            params=params.lm_params)
 

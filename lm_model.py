@@ -30,6 +30,7 @@ class LMModel(BaseParams):
         params['lm_batch_size'] = 128
         params['lm_learning_rate'] = 1e-4
         params['lm_learning_rate_decay_factor'] = 0.5
+        params['lm_samp_prob'] = 0.1
         params['max_gradient_norm'] = 5.0
         params['simple_lm'] = False
 
@@ -134,3 +135,5 @@ class LMModel(BaseParams):
                             help="Whether simple LM should be used or the attn ZEROED variant")
         parser.add_argument("-lm_learning_rate", default=0.0001, type=float,
                             help="LM learning rate")
+        parser.add_argument("-lm_samp_prob", default=0.1,
+                            type=float, help="1 - dropout_prob")
