@@ -66,7 +66,7 @@ def grid_search(args):
         sys.stdout.flush()
 
     with open(perf_file, "a", 0) as perf_f:
-        for beam_size in [2, 4, 8, 16, 32]:
+        for beam_size in [2, 4, 8, 16]:
         #for beam_size in [2]:
             print ("\nBeam size: %d" %beam_size)
             sys.stdout.flush()
