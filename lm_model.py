@@ -69,6 +69,7 @@ class LMModel(BaseParams):
         for var in tf.trainable_variables():
             if "decoder_char" in var.name:
                 trainable_vars.append(var)
+                print (var.name)
 
         # Initialize optimizer
         opt = tf.train.AdamOptimizer(self.learning_rate, name='AdamLM')
@@ -99,10 +100,11 @@ class LMModel(BaseParams):
         # Create computational graph
         # First encode input
         if self.params.simple_lm:
-            print ("Using a simple LM model")
-            w_proj = tf.get_variable("W_proj", shape=[self.encoder.params.hidden_size,
-                                                      self.encoder.params.vocab_size], dtype=tf.float32)
-            b_proj = tf.get_variable("b_proj", shape=[self.encoder.params.vocab_size], dtype=tf.float32)
+            with tf.variable_scope("rnn_decoder_char", reuse=None):
+                print ("Using a simple LM model")
+                w_proj = tf.get_variable("W_proj", shape=[self.encoder.params.hidden_size,
+                                                          self.encoder.params.vocab_size], dtype=tf.float32)
+                b_proj = tf.get_variable("b_proj", shape=[self.encoder.params.vocab_size], dtype=tf.float32)
             with tf.variable_scope("rnn_decoder_char", reuse=True):
                 emb_inputs, _ = self.encoder.prepare_decoder_input(self.encoder_inputs[:-1, :])
                 self.outputs, _ = \

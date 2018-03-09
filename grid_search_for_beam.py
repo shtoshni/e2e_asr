@@ -65,7 +65,7 @@ def grid_search(args):
         print ("Loaded %d entries from grid search" %(len(perf_dict)))
         sys.stdout.flush()
 
-    with open(perf_file, "a") as perf_f:
+    with open(perf_file, "a", 0) as perf_f:
         for beam_size in [2, 4, 8, 16, 32]:
         #for beam_size in [2]:
             print ("\nBeam size: %d" %beam_size)
@@ -83,6 +83,7 @@ def grid_search(args):
                     output = subprocess.check_output(exec_cmd, shell=True)
                     asr_perf, _= parse_output(output)
                     perf_f.write("%d %.2f %f\n" %(beam_size, lm_weight, asr_perf))
+                    perf_f.flush()
 
                 print ("ASR Error: %.4f, Beam size: %d, lm weight: %.2f" %
                        (asr_perf, beam_size, lm_weight))
