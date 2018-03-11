@@ -197,7 +197,7 @@ class Train(BaseParams):
                 else:
                     tf.train.Saver().restore(sess, ckpt.model_checkpoint_path)
                 # Prepare training data
-                epoch = model.global_step.eval()/3000  # The exact number is either 3006 or 3016
+                epoch = model.global_step.eval()/3006  # For default setup it's 3006
 
                 train_writer = tf.summary.FileWriter(params.train_dir +
                                                      '/summary', tf.get_default_graph())
@@ -268,7 +268,7 @@ class Train(BaseParams):
                                 lm_model.update_iterator()
                                 sess.run(lm_model.epoch_incr)
                                 sess.run(lm_model.data_iter.initializer)
-                                print ("LM Epoch done %d !!" %lm_model.epoch.eval)
+                                print ("LM Epoch done %d !!" %lm_model.epoch.eval())
 
                         else:
                             cur_handle = random.choice(active_handle_list)
