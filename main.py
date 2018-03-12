@@ -213,7 +213,8 @@ def launch_eval(options):
         print ("Using the model from: %s" %ckpt_path)
         start_time = time.time()
         asr_perf, out_file = eval_model.beam_search_decode(
-            sess, ckpt_path, beam_search_params=options.beam_search_params, get_out_file=True)
+            sess, ckpt_path, beam_search_params=options.beam_search_params, dev=options.eval_dev,
+            get_out_file=True)
         decoding_time = time.time() - start_time
         print ("Total decoding time: %s" %timedelta(seconds=decoding_time))
 

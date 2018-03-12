@@ -115,7 +115,8 @@ class Eval(BaseParams):
         return score
 
 
-    def beam_search_decode(self, sess, ckpt_path, beam_search_params=None, get_out_file=False):
+    def beam_search_decode(self, sess, ckpt_path, beam_search_params=None,
+                           dev=False, get_out_file=False):
         """Beam search decoding done via numpy implementation of attention decoder."""
         params = self.params
 
