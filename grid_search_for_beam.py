@@ -49,7 +49,7 @@ def grid_search(args):
     best_lm_weight = 0
 
     if args.use_lm:
-        lm_weight_options = [0, 0.1, 0.2]
+        lm_weight_options = [0, 0.05, 0.1]
     else:
         lm_weight_options = [0]
 
