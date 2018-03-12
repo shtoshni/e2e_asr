@@ -11,7 +11,9 @@ import multiprocessing as mp
 from os import path
 from datetime import timedelta
 import time
+import random
 
+import cPickle as pickle
 import argparse
 
 import numpy as np
@@ -24,7 +26,6 @@ from seq2seq_model import Seq2SeqModel
 from speech_dataset import SpeechDataset
 from base_params import BaseParams
 import swbd_utils
-import random
 
 from beam_search import BeamSearch
 
@@ -114,46 +115,44 @@ class Eval(BaseParams):
         print ("Score: %f" %score)
         return score
 
+    def exec_tf_code(self, sess):
+        """Executes the TF side for encoder and returns the relevant info
+        from TFRecords."""
+        enc_start_time = time.time()
+
+        hidden_states_list, utt_id_list, gold_id_list = [], [], []
+        sess.run(self.model.data_iter.initializer)
+        counter = 0
+        while True:
+            try:
+                char_enc_layer = self.model.params.num_layers["char"]
+                output_feed = [self.model.encoder_hidden_states[char_enc_layer],
+                               self.model.seq_len_encs[char_enc_layer],
+                               self.model.decoder_inputs["utt_id"],
+                               self.model.decoder_inputs["char"]]
+
+                encoder_hidden_states, seq_lens, utt_ids, gold_ids = sess.run(output_feed)
+                batch_size = encoder_hidden_states.shape[0]
+                for idx in xrange(batch_size):
+                    hidden_states_list.append(encoder_hidden_states[idx, :seq_lens[idx], :])
+                    utt_id_list.append(utt_ids[idx])
+                    gold_id_list.append(np.array(gold_ids[1:, idx]))  # Ignore the GO_ID
+                    counter += 1
+                if counter > 100:
+                    break
+            except tf.errors.OutOfRangeError:
+                break
+
+        enc_time = time.time() - enc_start_time
+        print ("TF side done, time taken: %s" %timedelta(seconds=enc_time))
+        return hidden_states_list, utt_id_list, gold_id_list
 
     def beam_search_decode(self, sess, ckpt_path, beam_search_params=None, get_out_file=False):
         """Beam search decoding done via numpy implementation of attention decoder."""
         params = self.params
 
-        def exec_tf_code():
-            """Executes the TF side for encoder and returns the relevant info
-            from TFRecords."""
-            enc_start_time = time.time()
-
-            hidden_states_list, utt_id_list, gold_id_list = [], [], []
-            sess.run(self.model.data_iter.initializer)
-            #counter = 0
-            while True:
-                try:
-                    char_enc_layer = self.model.params.num_layers["char"]
-                    output_feed = [self.model.encoder_hidden_states[char_enc_layer],
-                                   self.model.seq_len_encs[char_enc_layer],
-                                   self.model.decoder_inputs["utt_id"],
-                                   self.model.decoder_inputs["char"]]
-
-                    encoder_hidden_states, seq_lens, utt_ids, gold_ids = sess.run(output_feed)
-                    batch_size = encoder_hidden_states.shape[0]
-                    for idx in xrange(batch_size):
-                        hidden_states_list.append(encoder_hidden_states[idx, :seq_lens[idx], :])
-                        utt_id_list.append(utt_ids[idx])
-                        gold_id_list.append(np.array(gold_ids[1:, idx]))  # Ignore the GO_ID
-                        #counter += 1
-                    #if counter > 200:
-                    #    break
-                except tf.errors.OutOfRangeError:
-                    break
-
-            enc_time = time.time() - enc_start_time
-            print ("TF side done, time taken: %s" %timedelta(seconds=enc_time))
-
-            return hidden_states_list, utt_id_list, gold_id_list
-
         # Execute the tensorflow part first to get the encoder_hidden_states etc
-        hidden_states_list, utt_id_list, gold_id_list = exec_tf_code()
+        hidden_states_list, utt_id_list, gold_id_list = self.exec_tf_code(sess)
         print ("Total instances: %d" %len(hidden_states_list))
 
         rev_normalizer = swbd_utils.reverse_swbd_normalizer()
@@ -163,7 +162,7 @@ class Eval(BaseParams):
         beam_output_list = []
         for idx, hidden_states in enumerate(hidden_states_list):
             beam_output_list.append(beam_search(hidden_states))
-            if (idx + 1) % 100 == 0:
+            if (idx + 1) % 50 == 0:
                 print ("Counter: %d" %(idx + 1))
 
         beam_size = beam_search_params.beam_size

@@ -24,6 +24,7 @@ class BeamSearch(BaseParams):
         params['lm_weight'] = 0.0
         params['lm_path'] = ""
         params['word_ins_penalty'] = 0.0
+        params['cov_penalty'] = 0.0
 
         return params
 
@@ -123,7 +124,8 @@ class BeamSearch(BaseParams):
             attn_probs = softmax(attn_logits)
 
             context_vec = np.matmul(attn_probs, encoder_hidden_states)
-            return context_vec
+            # The attention probabilities are necessary for coverage penalty calculation
+            return (context_vec, attn_probs)
 
         return attention
 
@@ -141,11 +143,11 @@ class BeamSearch(BaseParams):
         # LM uses a zero attn vector
         zero_attn = np.zeros(encoder_hidden_states.shape[1])
 
-        def get_top_k(x_dec, x_lm, state_list, beam_size=search_params.beam_size):
+        def get_top_k(x_dec, x_lm, state_list, cum_attn_probs, beam_size=search_params.beam_size):
             dec_state, lm_state = state_list
 
             dec_state = dec_lstm(x_dec, dec_state)
-            context_vec = attention_call(dec_state[0])
+            context_vec, attn_probs = attention_call(dec_state[0])
             context_dec_comb = np.concatenate((dec_state[0], context_vec), axis=0)
             output_dec_probs = softmax(np.matmul(context_dec_comb, params.attn_proj_w) +
                                        params.attn_proj_b)
@@ -156,14 +158,23 @@ class BeamSearch(BaseParams):
             output_lm_probs = softmax(np.matmul(context_lm_comb, lm_params.attn_proj_w) +
                                       lm_params.attn_proj_b)
             log_lm_probs = np.log(output_lm_probs)
-
             combined_log_probs = log_dec_probs + search_params.lm_weight * log_lm_probs
 
-            top_k_indices = np.argpartition(combined_log_probs, -beam_size)[-beam_size:]
+            cov_loss = 0.0
+            if search_params.cov_penalty != 0:
+                cum_attn_probs += attn_probs
+                cov_term_mat = np.log(np.minimum(cum_attn_probs, np.full_like(attn_probs, 0.5)))
+                cov_cost = np.sum(cov_term_mat)
+                cov_loss = search_params.cov_penalty * cov_cost
+
+            combined_score = combined_log_probs + cov_loss
+
+            top_k_indices = np.argpartition(combined_score, -beam_size)[-beam_size:]
 
             # Return indices, their score, and the lstm state
-            return (top_k_indices, combined_log_probs[top_k_indices], [dec_state,
-                    lm_state], context_vec)
+            return (top_k_indices, combined_log_probs[top_k_indices],
+                    combined_score[top_k_indices], [dec_state,
+                    lm_state], context_vec, cum_attn_probs)
 
         return get_top_k
 
@@ -175,18 +186,30 @@ class BeamSearch(BaseParams):
         dec_lstm = BasicLSTM(params.lstm_w, params.lstm_b)
         attention_call = self.calc_attention(encoder_hidden_states)
 
-        def get_top_k(x, state_list, beam_size=search_params.beam_size):
+        def get_top_k(x, state_list, cum_attn_probs, beam_size=search_params.beam_size):
             dec_state = state_list[0]
             dec_state = dec_lstm(x, dec_state)
-            context_vec = attention_call(dec_state[0])
+            context_vec, attn_probs = attention_call(dec_state[0])
             context_dec_comb = np.concatenate((dec_state[0], context_vec), axis=0)
 
             output_probs = softmax(np.matmul(context_dec_comb, params.attn_proj_w) +
                                    params.attn_proj_b)
-            top_k_indices = np.argpartition(output_probs, -beam_size)[-beam_size:]
+            log_dec_probs = np.log(output_probs)
+            cov_loss = 0.0
+            if search_params.cov_penalty != 0:
+                cum_attn_probs += attn_probs
+                cov_term_mat = np.log(np.minimum(cum_attn_probs, np.full_like(attn_probs, 0.5)))
+                cov_cost = np.sum(cov_term_mat)
+                cov_loss = search_params.cov_penalty * cov_cost
+
+            combined_score = log_dec_probs + cov_loss
+
+            top_k_indices = np.argpartition(combined_score, -beam_size)[-beam_size:]
 
             # Return indices, their score, and the lstm state
-            return (top_k_indices, np.log(output_probs[top_k_indices]), [dec_state], context_vec)
+            return (top_k_indices, log_dec_probs[top_k_indices],
+                    combined_score[top_k_indices], [dec_state], context_vec,
+                    cum_attn_probs)
 
         return get_top_k
 
@@ -211,6 +234,7 @@ class BeamSearch(BaseParams):
 
         zero_state = (np.zeros(h_size), np.zeros(h_size))
         zero_attn = np.zeros(encoder_hidden_states.shape[1])
+        cum_attn_probs = np.zeros(encoder_hidden_states.shape[0])
 
         # Maintain a tuple of (output_indices, score, encountered EOS?)
         output_list = []
@@ -220,13 +244,14 @@ class BeamSearch(BaseParams):
 
         # Run step 0 separately
         if self.use_lm:
-            top_k_indices, top_k_scores, state_list, attn_state =\
-                get_top_k_fn(x, x_lm, [zero_state, zero_state], beam_size=k)
+            top_k_indices, top_k_model_scores, top_k_scores, state_list, attn_state, cum_attn_probs =\
+                get_top_k_fn(x, x_lm, [zero_state, zero_state], cum_attn_probs, beam_size=k)
         else:
-            top_k_indices, top_k_scores, state_list, attn_state =\
-                get_top_k_fn(x, [zero_state], beam_size=k)
+            top_k_indices, top_k_model_scores, top_k_scores, state_list, attn_state, cum_attn_probs =\
+                get_top_k_fn(x, [zero_state], cum_attn_probs, beam_size=k)
         for idx in xrange(top_k_indices.shape[0]):
-            output_tuple = (BeamEntry([top_k_indices[idx]], state_list, attn_state), top_k_scores[idx])
+            output_tuple = (BeamEntry([top_k_indices[idx]], state_list, attn_state,
+                                      cum_attn_probs), top_k_model_scores[idx])
             if top_k_indices[idx] == data_utils.EOS_ID:
                 final_output_list.append(output_tuple)
                 # Decrease the beam size once EOS is encountered
@@ -242,7 +267,9 @@ class BeamSearch(BaseParams):
             next_context_vecs = []
 
             score_list = []
+            model_score_list = []
             index_list = []
+            cum_attn_probs_list = []
             for candidate, cand_score in output_list:
                 simple_input = params.embedding[candidate.get_last_output()]
                 concat_input = np.concatenate((simple_input, candidate.get_context_vec()),
@@ -254,27 +281,32 @@ class BeamSearch(BaseParams):
                     concat_lm = np.concatenate((lm_emb_input, zero_attn), axis=0)
                     x_lm = np.matmul(concat_lm, lm_params.inp_w) + lm_params.inp_b
 
-                    top_k_indices, top_k_scores, state_list, context_vec =\
-                        get_top_k_fn(x, x_lm, candidate.get_dec_state(), beam_size=k)
+                    top_k_indices, top_k_model_scores, top_k_scores, state_list, context_vec, cum_attn_probs =\
+                        get_top_k_fn(x, x_lm, candidate.get_dec_state(),
+                                     candidate.get_cum_attn_probs(), beam_size=k)
                 else:
-                    top_k_indices, top_k_scores, state_list, context_vec =\
-                        get_top_k_fn(x, candidate.get_dec_state(), beam_size=k)
+                    top_k_indices, top_k_model_scores, top_k_scores, state_list, context_vec, cum_attn_probs =\
+                        get_top_k_fn(x, candidate.get_dec_state(),
+                                     candidate.get_cum_attn_probs(), beam_size=k)
 
                 next_dec_states.append(state_list)
                 next_context_vecs.append(context_vec)
 
                 index_list.append(top_k_indices)
                 score_list.append(top_k_scores + cand_score)
+                model_score_list.append(top_k_model_scores + cand_score)
+                cum_attn_probs_list.append(cum_attn_probs)
 
             # Score of all k**2 continuations
             all_scores = np.concatenate(score_list, axis=0)
+            all_model_scores = np.concatenate(model_score_list, axis=0)
             # All k**2 continuations
             all_indices = np.concatenate(index_list, axis=0)
 
             # Find the top indices among the k^^2 entries
             top_k_indices = np.argpartition(all_scores, -k)[-k:]
             next_k_indices = all_indices[top_k_indices]
-            top_k_scores = all_scores[top_k_indices]
+            top_k_scores = all_model_scores[top_k_indices]
             # The original candidate indices can be found by dividing by k.
             # Because the indices are of the form - i * k + j, where i
             # represents the ith output and j represents the jth top index for i
@@ -291,8 +323,9 @@ class BeamSearch(BaseParams):
                 new_index_seq = orig_cand.get_index_seq() + [next_elem]
                 dec_state = next_dec_states[orig_cand_idx]
                 context_vec = next_context_vecs[orig_cand_idx]
+                cum_attn_probs = cum_attn_probs_list[orig_cand_idx]
 
-                output_tuple = (BeamEntry(new_index_seq, dec_state, context_vec),
+                output_tuple = (BeamEntry(new_index_seq, dec_state, context_vec, cum_attn_probs),
                                 top_k_scores[idx])
                 if next_elem == data_utils.EOS_ID:
                     # This sequence is finished. Put the output on the final list
@@ -322,3 +355,5 @@ class BeamSearch(BaseParams):
                             help="LM ckpt path")
         parser.add_argument("-word_ins_penalty", default=0.0, type=float,
                             help="Word insertion penalty")
+        parser.add_argument("-cov_penalty", default=0.0, type=float,
+                            help="Coverage penalty")
