@@ -231,8 +231,10 @@ class BeamSearch(BaseParams):
         if self.use_lm:
             x_lm = lm_params.embedding[data_utils.GO_ID]
         h_size = params.lstm_w.shape[1]/4
-
-        zero_state = (np.zeros(h_size), np.zeros(h_size))
+        zero_dec_state = (np.zeros(h_size), np.zeros(h_size))
+        if self.use_lm:
+            lm_h_size = lm_params.lstm_w.shape[1]/4
+            zero_lm_state = (np.zeros(lm_h_size), np.zeros(lm_h_size))
         zero_attn = np.zeros(encoder_hidden_states.shape[1])
         cum_attn_probs = np.zeros(encoder_hidden_states.shape[0])
 
@@ -245,10 +247,10 @@ class BeamSearch(BaseParams):
         # Run step 0 separately
         if self.use_lm:
             top_k_indices, top_k_model_scores, top_k_scores, state_list, attn_state, cum_attn_probs =\
-                get_top_k_fn(x, x_lm, [zero_state, zero_state], cum_attn_probs, beam_size=k)
+                get_top_k_fn(x, x_lm, [zero_dec_state, zero_lm_state], cum_attn_probs, beam_size=k)
         else:
             top_k_indices, top_k_model_scores, top_k_scores, state_list, attn_state, cum_attn_probs =\
-                get_top_k_fn(x, [zero_state], cum_attn_probs, beam_size=k)
+                get_top_k_fn(x, [zero_dec_state], cum_attn_probs, beam_size=k)
         for idx in xrange(top_k_indices.shape[0]):
             output_tuple = (BeamEntry([top_k_indices[idx]], state_list, attn_state,
                                       cum_attn_probs), top_k_model_scores[idx])
