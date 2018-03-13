@@ -23,7 +23,7 @@ class Decoder(BaseParams):
         """Decoder class parameters."""
         params = Bunch()
         params['out_prob_dec'] = 0.9
-        params['hidden_size'] = 256
+        params['hidden_size_dec'] = 256
         params['num_layers_dec'] = 1
         params['emb_size'] = 256
         params['vocab_size'] = 1000
@@ -52,9 +52,9 @@ class Decoder(BaseParams):
         def single_cell():
             """Create a single RNN cell."""
             if params.use_lstm:
-                cell = tf.nn.rnn_cell.BasicLSTMCell(params.hidden_size)
+                cell = tf.nn.rnn_cell.BasicLSTMCell(params.hidden_size_dec)
             else:
-                cell = tf.nn.rnn_cell.GRUCell(params.hidden_size)
+                cell = tf.nn.rnn_cell.GRUCell(params.hidden_size_dec)
             if self.isTraining:
                 # During training we use a dropout wrapper
                 cell = tf.nn.rnn_cell.DropoutWrapper(
@@ -181,6 +181,8 @@ class Decoder(BaseParams):
     def add_parse_options(cls, parser):
         """Add decoder specific arguments."""
         # Decoder params
+        parser.add_argument("-hsize_dec", "--hidden_size_dec", default=256,
+                            type=int, help="Hidden size of decoder RNN")
         parser.add_argument("-emb_size", "--emb_size", default=256, type=int,
                             help="Embedding size")
         parser.add_argument("-num_layers_dec", "--num_layers_dec", default=1,
