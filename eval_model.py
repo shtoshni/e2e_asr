@@ -121,8 +121,9 @@ class Eval(BaseParams):
         enc_start_time = time.time()
 
         hidden_states_list, utt_id_list, gold_id_list = [], [], []
+        total_exec = False
         sess.run(self.model.data_iter.initializer)
-        counter = 0
+
         while True:
             try:
                 char_enc_layer = self.model.params.num_layers["char"]
@@ -137,24 +138,46 @@ class Eval(BaseParams):
                     hidden_states_list.append(encoder_hidden_states[idx, :seq_lens[idx], :])
                     utt_id_list.append(utt_ids[idx])
                     gold_id_list.append(np.array(gold_ids[1:, idx]))  # Ignore the GO_ID
-                    counter += 1
-                if counter > 100:
-                    break
             except tf.errors.OutOfRangeError:
+                total_exec = True
                 break
 
         enc_time = time.time() - enc_start_time
         print ("TF side done, time taken: %s" %timedelta(seconds=enc_time))
-        return hidden_states_list, utt_id_list, gold_id_list
+        return total_exec, hidden_states_list, utt_id_list, gold_id_list
 
-    def beam_search_decode(self, sess, ckpt_path, beam_search_params=None, get_out_file=False):
+    def beam_search_decode(self, sess, ckpt_path, beam_search_params=None,
+                           dev=False, get_out_file=False):
         """Beam search decoding done via numpy implementation of attention decoder."""
         params = self.params
 
-        # Execute the tensorflow part first to get the encoder_hidden_states etc
-        hidden_states_list, utt_id_list, gold_id_list = self.exec_tf_code(sess)
-        print ("Total instances: %d" %len(hidden_states_list))
+        def get_tf_exec_file():
+            out_dir = path.dirname(ckpt_path)
+            suffix = ("dev" if dev else "test")
+            tf_out_file = path.join(out_dir, "tf_out_" + suffix + ".pkl")
+            return tf_out_file
 
+        tf_out_file = get_tf_exec_file()
+        load_success = True
+        try:
+            hidden_states_list, utt_id_list, gold_id_list = pickle.load(open(tf_out_file, "r"))
+            print ("Loaded output of previous execution of TF from %s" %tf_out_file)
+        except EOFError:
+            load_success = False
+        except IOError:
+            load_success = False
+
+        if not load_success:
+            # Execute the tensorflow part first to get the encoder_hidden_states etc
+            total_exec, hidden_states_list, utt_id_list, gold_id_list = self.exec_tf_code(sess)
+            if total_exec:
+                # All the data has been processed
+                with open(tf_out_file, "w") as pkl_f:
+                    pickle.dump([hidden_states_list, utt_id_list, gold_id_list], pkl_f)
+                    print (("Stored TF output for " + ("dev" if dev else "test")
+                            + " at %s") %(tf_out_file))
+
+        print ("Total instances: %d" %len(hidden_states_list))
         rev_normalizer = swbd_utils.reverse_swbd_normalizer()
 
         beam_search = BeamSearch(ckpt_path, self.rev_char_vocab,
@@ -162,7 +185,7 @@ class Eval(BaseParams):
         beam_output_list = []
         for idx, hidden_states in enumerate(hidden_states_list):
             beam_output_list.append(beam_search(hidden_states))
-            if (idx + 1) % 50 == 0:
+            if (idx + 1) % 100 == 0:
                 print ("Counter: %d" %(idx + 1))
 
         beam_size = beam_search_params.beam_size
