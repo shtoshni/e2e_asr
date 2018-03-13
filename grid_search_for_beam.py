@@ -53,7 +53,7 @@ def grid_search(args):
     else:
         lm_weight_options = [0]
 
-    cov_penalty_options = [0, 0.1, 0.2]
+    cov_penalty_options = [0, 0.05, 0.1]
 
     perf_dict = {}
     if path.isfile(perf_file):
@@ -72,7 +72,7 @@ def grid_search(args):
             perf_dict = {}
 
     with open(perf_file, "a", 0) as perf_f:
-        for beam_size in [4, 8, 16]:
+        for beam_size in [4, 8]:
             print ("\nBeam size: %d" %beam_size)
             sys.stdout.flush()
 
@@ -95,7 +95,7 @@ def grid_search(args):
                            (asr_perf, beam_size, cov_penalty, lm_weight))
                     sys.stdout.flush()
 
-                    if asr_perf > (best_asr_perf + 0.02):
+                    if asr_perf > (best_asr_perf + 0.05):
                         # Don't think that lm_weight can
                         # cause more this gain
                         print ("Not exploring further increasing lm_weight")
