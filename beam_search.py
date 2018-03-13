@@ -163,7 +163,8 @@ class BeamSearch(BaseParams):
             cov_loss = 0.0
             if search_params.cov_penalty != 0:
                 cum_attn_probs += attn_probs
-                cov_term_mat = np.log(np.minimum(cum_attn_probs, np.full_like(attn_probs, 0.5)))
+                #cov_term_mat = np.log(np.minimum(cum_attn_probs, np.full_like(attn_probs, 0.8)))
+                cov_term_mat = np.log(cum_attn_probs)
                 cov_cost = np.sum(cov_term_mat)
                 cov_loss = search_params.cov_penalty * cov_cost
 
@@ -198,7 +199,8 @@ class BeamSearch(BaseParams):
             cov_loss = 0.0
             if search_params.cov_penalty != 0:
                 cum_attn_probs += attn_probs
-                cov_term_mat = np.log(np.minimum(cum_attn_probs, np.full_like(attn_probs, 0.5)))
+                #cov_term_mat = np.log(np.minimum(cum_attn_probs, np.full_like(attn_probs, 0.8)))
+                cov_term_mat = np.log(cum_attn_probs)
                 cov_cost = np.sum(cov_term_mat)
                 cov_loss = search_params.cov_penalty * cov_cost
 

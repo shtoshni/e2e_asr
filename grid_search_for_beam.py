@@ -5,6 +5,7 @@ from os import path
 import argparse
 import subprocess
 import sys
+import numpy as np
 
 
 def parse_options():
@@ -53,7 +54,7 @@ def grid_search(args):
     else:
         lm_weight_options = [0]
 
-    cov_penalty_options = [0, 0.05, 0.1]
+    cov_penalty_options = list(np.linspace(0.05, 0.25, num=5))#[0, 0.05, 0.1]
 
     perf_dict = {}
     if path.isfile(perf_file):
@@ -72,7 +73,7 @@ def grid_search(args):
             perf_dict = {}
 
     with open(perf_file, "a", 0) as perf_f:
-        for beam_size in [4, 8]:
+        for beam_size in [4, 8, 16]:
             print ("\nBeam size: %d" %beam_size)
             sys.stdout.flush()
 
