@@ -350,7 +350,7 @@ class BeamSearch(BaseParams):
     def add_parse_options(cls, parser):
         """Add beam search specific arguments."""
         # Decoder params
-        parser.add_argument("-beam_size", default=4, type=int, help="Beam size")
+        parser.add_argument("-beam_size", default=1, type=int, help="Beam size")
         parser.add_argument("-lm_weight", default=0.0, type=float, help="LM weight in decoding")
         parser.add_argument("-lm_path", default="/share/data/speech/shtoshni/research/asr_multi/"
                             "code/lm/models/pretrain_simple_lm/lm.ckpt-222000", type=str,
