@@ -103,11 +103,12 @@ class LMModel(BaseParams):
         if self.params.simple_lm:
             with tf.variable_scope("rnn_decoder_char", reuse=None):
                 print ("Using a simple LM model")
-                w_proj = tf.get_variable("W_proj", shape=[self.encoder.params.hidden_size,
+                w_proj = tf.get_variable("W_proj", shape=[self.encoder.params.hidden_size_dec,
                                                           self.encoder.params.vocab_size], dtype=tf.float32)
                 b_proj = tf.get_variable("b_proj", shape=[self.encoder.params.vocab_size], dtype=tf.float32)
             with tf.variable_scope("rnn_decoder_char", reuse=True):
                 emb_inputs, _ = self.encoder.prepare_decoder_input(self.encoder_inputs[:-1, :])
+                #with tf.variable_scope("lm", reuse=True):
                 self.outputs, _ = \
                     tf.nn.dynamic_rnn(self.encoder.cell, emb_inputs,
                                       sequence_length=self.seq_len,

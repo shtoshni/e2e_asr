@@ -178,8 +178,8 @@ def launch_eval(options):
             dataset_params.batch_size = 64
             dataset_params.feat_length = options.train_params.feat_length
 
-            test_files = glob.glob(path.join(options.train_params.data_dir, "eval2000*"))
-            #test_files = glob.glob(path.join(options.train_params.data_dir, "dev_1k.1*"))
+            #test_files = glob.glob(path.join(options.train_params.data_dir, "eval2000*"))
+            test_files = glob.glob(path.join(options.train_params.data_dir, "dev_1k.3*"))
             print ("Total test files: %d" %len(test_files))
             dev_set = SpeechDataset(dataset_params, test_files,
                                     isTraining=False)

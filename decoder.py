@@ -29,7 +29,7 @@ class Decoder(BaseParams):
         params['vocab_size'] = 1000
         params['samp_prob'] = 0.1
         params['max_output'] = 400
-        params['use_lstm'] = False
+        params['use_lstm'] = True
 
         return params
 

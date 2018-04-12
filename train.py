@@ -322,9 +322,10 @@ class Train(BaseParams):
                                                 sys.stdout.flush()
 
                                     previous_errs.append(asr_err_cur)
-                                    if not self.check_progess(previous_errs):
-                                        print ("No improvement in 10 checkpoints")
-                                        sys.exit()
+                                    if model.global_step.eval() >= params.min_steps:
+                                        if not self.check_progess(previous_errs):
+                                            print ("No improvement in 10 checkpoints")
+                                            sys.exit()
 
 
                                     # Early stopping

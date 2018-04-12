@@ -37,10 +37,12 @@ class AttnDecoder(Decoder, BaseParams):
         # First prepare the decoder input - Embed the input and obtain the
         # relevant loop function
         params = self.params
+
         scope = "rnn_decoder" + ("" if self.scope is None else "_" + self.scope)
 
         with tf.variable_scope(scope):
             decoder_inputs, loop_function = self.prepare_decoder_input(decoder_inp)
+            lm_cell = self.get_cell()
 
         # TensorArray is used to do dynamic looping over decoder input
         inputs_ta = tf.TensorArray(size=params.max_output,
@@ -59,6 +61,7 @@ class AttnDecoder(Decoder, BaseParams):
         attn = tf.zeros(batch_attn_size, dtype=tf.float32)
         batch_alpha_size = tf.stack([batch_size, attn_length, 1, 1])
         alpha = tf.zeros(batch_alpha_size, dtype=tf.float32)
+
 
         with tf.variable_scope(scope):
             # Calculate the W*h_enc component
@@ -94,27 +97,31 @@ class AttnDecoder(Decoder, BaseParams):
 
                 if cell_output is None:
                     next_state = self.cell.zero_state(batch_size, dtype=tf.float32)
+
                     # This output is not used but is just used to tell the shape
                     # without the batch dimension
                     # Check here - https://www.tensorflow.org/api_docs/python/tf/nn/raw_rnn
                     output = tf.zeros((self.params.vocab_size))
-                    loop_state = tuple([attn, alpha])
-                    next_input = inputs_ta.read(time)
+                    lm_input = inputs_ta.read(time)
+                    attn_state = tuple([attn, alpha])
+                    lm_state = lm_cell.zero_state(batch_size, dtype=tf.float32)
                 else:
                     next_state = state
                     #loop_state = attention(cell_output, loop_state[1])
-                    loop_state = attention(self.get_state(state), loop_state[1])
+                    lm_state, attn_state = loop_state
+                    attn_state = attention(self.get_state(state), attn_state[1])
+
                     with tf.variable_scope("AttnOutputProjection"):
-                        output = _linear([self.get_state(state), loop_state[0]],
+                        output = _linear([self.get_state(state), attn_state[0]],
                                          self.params.vocab_size, True)
 
 
                     if not self.isTraining:
-                        simple_input = loop_function(output)
+                        lm_input = loop_function(output)
                     else:
                         if loop_function is not None:
                             random_prob = tf.random_uniform([])
-                            simple_input = tf.cond(
+                            lm_input = tf.cond(
                                 finished,
                                 lambda: tf.zeros([batch_size, emb_size], dtype=tf.float32),
                                 lambda: tf.cond(tf.less(random_prob, 1 - params.samp_prob),
@@ -122,18 +129,24 @@ class AttnDecoder(Decoder, BaseParams):
                                                 lambda: loop_function(output))
                             )
                         else:
-                            simple_input = tf.cond(
+                            lm_input = tf.cond(
                                 finished,
                                 lambda: tf.zeros([batch_size, emb_size], dtype=tf.float32),
                                 lambda: inputs_ta.read(time)
                             )
 
-                    # Merge input and previous attentions into one vector of the right size.
-                    input_size = simple_input.get_shape().with_rank(2)[1]
-                    if input_size.value is None:
-                        raise ValueError("Could not infer input size from input")
-                    with tf.variable_scope("InputProjection"):
-                        next_input = _linear([simple_input, loop_state[0]], input_size, True)
+                # Common calculations
+                #with tf.variable_scope("lm"):
+                lm_output, next_lm_state = lm_cell(lm_input, lm_state)
+
+                # Merge input and previous attentions into one vector of the right size.
+                input_size = lm_input.get_shape().with_rank(2)[1]
+                if input_size.value is None:
+                    raise ValueError("Could not infer input size from input")
+                with tf.variable_scope("InputProjection", reuse=tf.AUTO_REUSE):
+                    next_input = _linear([lm_output, attn_state[0]], input_size, True)
+
+                loop_state = tuple([next_lm_state, attn_state])
 
                 return (elements_finished, next_input, next_state, output, loop_state)
 

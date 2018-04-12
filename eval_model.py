@@ -123,7 +123,7 @@ class Eval(BaseParams):
         hidden_states_list, utt_id_list, gold_id_list = [], [], []
         total_exec = False
         sess.run(self.model.data_iter.initializer)
-
+        counter = 0
         while True:
             try:
                 char_enc_layer = self.model.params.num_layers["char"]
@@ -138,6 +138,9 @@ class Eval(BaseParams):
                     hidden_states_list.append(encoder_hidden_states[idx, :seq_lens[idx], :])
                     utt_id_list.append(utt_ids[idx])
                     gold_id_list.append(np.array(gold_ids[1:, idx]))  # Ignore the GO_ID
+                    counter += 1
+                if counter > 100:
+                    break
             except tf.errors.OutOfRangeError:
                 total_exec = True
                 break
