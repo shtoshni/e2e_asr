@@ -46,15 +46,17 @@ class Decoder(BaseParams):
         params = self.params
         self.isTraining = isTraining
 
-    def get_cell(self):
+    def get_cell(self, hidden_size=None):
         """Create the LSTM cell used by decoder."""
         params = self.params
+        if hidden_size is None:
+            hidden_size = params.hidden_size_dec
         def single_cell():
             """Create a single RNN cell."""
             if params.use_lstm:
-                cell = tf.nn.rnn_cell.BasicLSTMCell(params.hidden_size_dec)
+                cell = tf.nn.rnn_cell.BasicLSTMCell(hidden_size)
             else:
-                cell = tf.nn.rnn_cell.GRUCell(params.hidden_size_dec)
+                cell = tf.nn.rnn_cell.GRUCell(hidden_size)
             if self.isTraining:
                 # During training we use a dropout wrapper
                 cell = tf.nn.rnn_cell.DropoutWrapper(

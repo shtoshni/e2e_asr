@@ -17,6 +17,7 @@ import tf_utils
 from losses import LossUtils
 from base_params import BaseParams
 from lm_dataset import LMDataset
+from tensorflow.contrib.rnn.python.ops.core_rnn_cell import _linear
 
 
 class LMModel(BaseParams):
@@ -30,7 +31,6 @@ class LMModel(BaseParams):
         params['lm_batch_size'] = 128
         params['lm_learning_rate'] = 1e-4
         params['lm_learning_rate_decay_factor'] = 0.5
-        params['lm_samp_prob'] = 0.1
         params['max_gradient_norm'] = 5.0
         params['simple_lm'] = False
 
@@ -79,7 +79,7 @@ class LMModel(BaseParams):
         gradients = tf.gradients(self.losses, trainable_vars)
         # Gradient clipping
         clipped_gradients, _ = tf.clip_by_global_norm(gradients,
-                                                         params.max_gradient_norm)
+                                                      params.max_gradient_norm)
         # Apply gradients
         self.updates = opt.apply_gradients(
             zip(clipped_gradients, trainable_vars),
@@ -93,30 +93,15 @@ class LMModel(BaseParams):
 
     def create_computational_graph(self):
         """Creates the computational graph."""
-        params = self.params
         self.encoder_inputs, self.seq_len = self.get_batch()
 
         self.targets, self.target_weights =\
             tf_utils.create_shifted_targets(self.encoder_inputs, self.seq_len)
         # Create computational graph
         # First encode input
-        if self.params.simple_lm:
-            with tf.variable_scope("rnn_decoder_char", reuse=None):
-                print ("Using a simple LM model")
-                w_proj = tf.get_variable("W_proj", shape=[self.encoder.params.hidden_size_dec,
-                                                          self.encoder.params.vocab_size], dtype=tf.float32)
-                b_proj = tf.get_variable("b_proj", shape=[self.encoder.params.vocab_size], dtype=tf.float32)
-            with tf.variable_scope("rnn_decoder_char", reuse=True):
-                emb_inputs, _ = self.encoder.prepare_decoder_input(self.encoder_inputs[:-1, :])
-                #with tf.variable_scope("lm", reuse=True):
-                self.outputs, _ = \
-                    tf.nn.dynamic_rnn(self.encoder.cell, emb_inputs,
-                                      sequence_length=self.seq_len,
-                                      dtype=tf.float32, time_major=True)
-                self.outputs = tf.reshape(self.outputs, [-1, self.encoder.cell.output_size])
-                self.outputs = tf.matmul(self.outputs, w_proj) + b_proj
-        else:
+        with tf.variable_scope("rnn_decoder_char", reuse=True):
             self.outputs = self.encoder(self.encoder_inputs, self.seq_len)
+
         self.losses = LossUtils.cross_entropy_loss(
             self.outputs, self.targets, self.seq_len)
 
@@ -132,9 +117,5 @@ class LMModel(BaseParams):
     @classmethod
     def add_parse_options(cls, parser):
         # LM params
-        parser.add_argument("-simple_lm", default=False, action="store_true",
-                            help="Whether simple LM should be used or the attn ZEROED variant")
         parser.add_argument("-lm_learning_rate", default=0.0001, type=float,
                             help="LM learning rate")
-        parser.add_argument("-lm_samp_prob", default=0.1,
-                            type=float, help="1 - dropout_prob")

@@ -23,6 +23,7 @@ class AttnDecoder(Decoder, BaseParams):
         """Defines params of the class."""
         params = super(AttnDecoder, cls).class_params()
         params['attention_vec_size'] = 64
+        params['lm_hidden_size'] = 256
         return params
 
     def __init__(self, isTraining, params=None, scope=None):
@@ -42,7 +43,7 @@ class AttnDecoder(Decoder, BaseParams):
 
         with tf.variable_scope(scope):
             decoder_inputs, loop_function = self.prepare_decoder_input(decoder_inp)
-            lm_cell = self.get_cell()
+            lm_cell = self.get_cell(hidden_size=params.lm_hidden_size)
 
         # TensorArray is used to do dynamic looping over decoder input
         inputs_ta = tf.TensorArray(size=params.max_output,
@@ -111,9 +112,11 @@ class AttnDecoder(Decoder, BaseParams):
                     lm_state, attn_state = loop_state
                     attn_state = attention(self.get_state(state), attn_state[1])
 
-                    with tf.variable_scope("AttnOutputProjection"):
-                        output = _linear([self.get_state(state), attn_state[0]],
-                                         self.params.vocab_size, True)
+                    with tf.variable_scope("AttnProjection"):
+                        proj_output = _linear([self.get_state(state), attn_state[0]],
+                                              self.params.hidden_size_dec, True)
+                    with tf.variable_scope("OutputProjection"):
+                        output = _linear([proj_output], self.params.vocab_size, True)
 
 
                     if not self.isTraining:
@@ -136,8 +139,10 @@ class AttnDecoder(Decoder, BaseParams):
                             )
 
                 # Common calculations
-                #with tf.variable_scope("lm"):
                 lm_output, next_lm_state = lm_cell(lm_input, lm_state)
+                if params.lm_hidden_size != params.hidden_size_dec:
+                    with tf.variable_scope("SimpleProjection", reuse=tf.AUTO_REUSE):
+                        lm_output = _linear([lm_output], params.hidden_size_dec, True)
 
                 # Merge input and previous attentions into one vector of the right size.
                 input_size = lm_input.get_shape().with_rank(2)[1]
@@ -169,3 +174,5 @@ class AttnDecoder(Decoder, BaseParams):
                             help="Scheduled sampling probability")
         parser.add_argument("-attn_vec_size", "--attention_vec_size", default=64,
                             type=int, help="Attention vector size")
+        parser.add_argument("-lm_hidden_size", "-lm_hsize", default=256,
+                            type=int, help="Hidden Size of LM layer")

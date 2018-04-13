@@ -1,4 +1,4 @@
-"""LM Encoder class for using the decoder as LM.
+"""LM Encoder class.
 
 Author: Shubham Toshniwal
 Contact: shtoshni@ttic.edu
@@ -8,99 +8,104 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import abc
 import tensorflow as tf
+from bunch import Bunch
 
-from tensorflow.contrib.rnn.python.ops.core_rnn_cell import _linear
-from decoder import Decoder
 from base_params import BaseParams
+from tensorflow.contrib.rnn.python.ops.core_rnn_cell import _linear
 
 
-class LMEncoder(Decoder, BaseParams):
-    """Implements the LM model using decoder params."""
+class LMEncoder(BaseParams):
+    """Base class for decoder in encoder-decoder framework."""
 
     @classmethod
     def class_params(cls):
-        """Defines params of the class."""
-        params = super(LMEncoder, cls).class_params()
-        params['encoder_hidden_size'] = 256
+        """Decoder class parameters."""
+        params = Bunch()
+        params['out_prob'] = 0.9
+        params['lm_hidden_size'] = 256
+        params['proj_size'] = 256
+        params['num_layers'] = 1
+        params['emb_size'] = 256
+        params['vocab_size'] = 1000
+
         return params
 
-    def __init__(self, params=None):
-        """Initializer."""
-        super(LMEncoder, self).__init__(isTraining=True, params=params)
-        # No output projection required in attention decoder
+    def __init__(self, isTraining=True, params=None):
+        """The initializer for decoder class.
+
+        Args:
+            params: Parameters
+        """
+        if params is None:
+            self.params = self.class_params()
+        else:
+            self.params = params
+        params = self.params
+        self.isTraining = isTraining
         self.cell = self.get_cell()
 
-    def __call__(self, decoder_inp, seq_len):
-        # First prepare the decoder input - Embed the input and obtain the
-        # relevant loop function
+    def get_cell(self):
+        """Create the LSTM cell used by decoder."""
         params = self.params
-        scope = "rnn_decoder_char"
+        def single_cell():
+            """Create a single RNN cell."""
+            cell = tf.nn.rnn_cell.BasicLSTMCell(params.lm_hidden_size)
+            if self.isTraining:
+                # During training we use a dropout wrapper
+                cell = tf.nn.rnn_cell.DropoutWrapper(
+                    cell, output_keep_prob=params.out_prob)
+            return cell
 
-        with tf.variable_scope(scope, reuse=True):
-            decoder_inputs, loop_function = self.prepare_decoder_input(decoder_inp)
+        if params.num_layers > 1:
+            # If RNN is stacked then we use MultiRNNCell class
+            cell = tf.nn.rnn_cell.MultiRNNCell([single_cell() for _ in xrange(params.num_layers)])
+        else:
+            cell = single_cell()
 
-        # TensorArray is used to do dynamic looping over decoder input
-        inputs_ta = tf.TensorArray(size=params.max_output,
-                                   dtype=tf.float32)
-        inputs_ta = inputs_ta.unstack(decoder_inputs)
+        return cell
 
-        batch_size = tf.shape(decoder_inputs)[1]
-        emb_size = decoder_inputs.get_shape()[2].value
+    def prepare_decoder_input(self, decoder_inputs):
+        """Do this step before starting decoding.
 
-        batch_attn_size = tf.stack([batch_size, params.encoder_hidden_size])
-        zero_attn = tf.zeros(batch_attn_size, dtype=tf.float32)
+        This step converts the decoder IDs to vectors and
+        Args:
+            decoder_inputs: Time major decoder IDs
+        Returns:
+            embedded_inp: Embedded decoder input.
+            loop_function: Function for getting next timestep input.
+        """
+        params = self.params
+        with tf.variable_scope("decoder"):
+            # Create an embedding matrix
+            embedding = tf.get_variable(
+                "embedding", [params.vocab_size, params.emb_size],
+                initializer=tf.random_uniform_initializer(-1.0, 1.0))
+            # Embed the decoder input via embedding lookup operation
+            embedded_inp = tf.nn.embedding_lookup(embedding, decoder_inputs)
 
-        with tf.variable_scope(scope, reuse=True):
-            def raw_loop_function(time, cell_output, state, loop_state):
-                # If loop_function is set, we use it instead of decoder_inputs.
-                elements_finished = (time >= tf.cast(seq_len, tf.int32))
-                finished = tf.reduce_all(elements_finished)
+        return embedded_inp
 
+    def __call__(self, lm_inputs, seq_len):
+        """Runs RNN and returns the logits."""
+        params = self.params
+        emb_inputs = self.prepare_decoder_input(lm_inputs[:-1, :])
+        outputs, _ = \
+            tf.nn.dynamic_rnn(self.cell, emb_inputs,
+                              sequence_length=seq_len,
+                              dtype=tf.float32, time_major=True)
+        # T x B x H => (T x B) x H
+        outputs = tf.reshape(outputs, [-1, self.cell.output_size])
 
-                if cell_output is None:
-                    next_state = self.cell.zero_state(batch_size, dtype=tf.float32)
-                    # This output is not used but is just used to tell the shape
-                    # without the batch dimension
-                    # Check here - https://www.tensorflow.org/api_docs/python/tf/nn/raw_rnn
-                    output = tf.zeros((self.params.vocab_size))
-                    loop_state = None
-                    next_input = inputs_ta.read(time)
-                else:
-                    next_state = state
-                    with tf.variable_scope("AttnOutputProjection"):
-                        output = _linear([self.get_state(state), zero_attn],
-                                         self.params.vocab_size, True)
+        with tf.variable_scope("rnn"):
+            # Additional variable scope required to mimic the attention
+            # decoder scope so that variable initialization is hassle free
+            if params.lm_hidden_size != params.proj_size:
+                with tf.variable_scope("SimpleProjection"):
+                    outputs = _linear([outputs], params.proj_size, True)
 
-                    if loop_function is not None:
-                        random_prob = tf.random_uniform([])
-                        simple_input = tf.cond(
-                            finished, lambda: tf.zeros([batch_size, emb_size], dtype=tf.float32),
-                            lambda: tf.cond(tf.less(random_prob, 1 - params.samp_prob),
-                                            lambda: inputs_ta.read(time),
-                                            lambda: loop_function(output))
-                            )
-                    else:
-                        simple_input = tf.cond(
-                            finished, lambda: tf.zeros([batch_size, emb_size], dtype=tf.float32),
-                            lambda: inputs_ta.read(time)
-                            )
-
-                    # Merge input and previous attentions into one vector of the right size.
-                    input_size = simple_input.get_shape().with_rank(2)[1]
-                    if input_size.value is None:
-                        raise ValueError("Could not infer input size from input")
-                    with tf.variable_scope("InputProjection"):
-                        next_input = _linear([simple_input, zero_attn], input_size, True)
-
-                return (elements_finished, next_input, next_state, output, loop_state)
-
-            # outputs is a TensorArray with T=max(sequence_length) entries
-            # of shape Bx|V|
-            outputs, _, _ = tf.nn.raw_rnn(self.cell, raw_loop_function)
-
-        # Concatenate the output across timesteps to get a tensor of TxBx|V|
-        # shape
-        outputs = outputs.concat()
+            with tf.variable_scope("OutputProjection"):
+                outputs = _linear([outputs], params.vocab_size, True)
 
         return outputs

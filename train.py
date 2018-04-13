@@ -57,6 +57,7 @@ class Train(BaseParams):
 
         params['lm_prob'] = 0.0
         params['lm_params'] = LMModel.class_params()
+        params['lm_enc_params'] = LMEncoder.class_params()
 
         params['run_id'] = 1
         params['steps_per_checkpoint'] = 500
@@ -174,12 +175,9 @@ class Train(BaseParams):
                     with tf.variable_scope("model", reuse=None):
                         print ("Creating LM model")
                         sys.stdout.flush()
-                        lm_params = copy.deepcopy(
-                            model_params.decoder_params['char'])
-                        lm_params.encoder_hidden_size =\
-                            2 * model_params.encoder_params.hidden_size
-                        lm_params.samp_prob = params.lm_params.lm_samp_prob
-                        lm_model = LMModel(LMEncoder(lm_params), data_files=lm_files,
+                        print (params.lm_enc_params)
+                        lm_model = LMModel(LMEncoder(params=params.lm_enc_params),
+                                           data_files=lm_files,
                                            params=params.lm_params)
 
                 model_saver = tf.train.Saver(tf.global_variables(), max_to_keep=None)
