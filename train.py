@@ -175,7 +175,6 @@ class Train(BaseParams):
                     with tf.variable_scope("model", reuse=None):
                         print ("Creating LM model")
                         sys.stdout.flush()
-                        print (params.lm_enc_params)
                         lm_model = LMModel(LMEncoder(params=params.lm_enc_params),
                                            data_files=lm_files,
                                            params=params.lm_params)
