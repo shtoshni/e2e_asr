@@ -54,10 +54,14 @@ class BeamSearch(BaseParams):
     def map_dec_variables(self, var_dict):
         """Map loaded tensors from names to variables."""
         params = Bunch()
-        params.lstm_w = var_dict[
+        params.lm_lstm_w = var_dict[
             "model/rnn_decoder_char/rnn/basic_lstm_cell/kernel"]
-        params.lstm_b = var_dict[
+        params.lm_lstm_b = var_dict[
             "model/rnn_decoder_char/rnn/basic_lstm_cell/bias"]
+        params.dec_lstm_w = var_dict[
+            "model/rnn_decoder_char/rnn/basic_lstm_cell_1/kernel"]
+        params.dec_lstm_b = var_dict[
+            "model/rnn_decoder_char/rnn/basic_lstm_cell_1/bias"]
 
         params.inp_w = var_dict[
             "model/rnn_decoder_char/rnn/InputProjection/kernel"]
@@ -65,20 +69,38 @@ class BeamSearch(BaseParams):
             "model/rnn_decoder_char/rnn/InputProjection/bias"]
 
         params.attn_proj_w = var_dict[
-            "model/rnn_decoder_char/rnn/AttnOutputProjection/kernel"]
+            "model/rnn_decoder_char/rnn/AttnProjection/kernel"]
         params.attn_proj_b = var_dict[
-            "model/rnn_decoder_char/rnn/AttnOutputProjection/bias"]
+            "model/rnn_decoder_char/rnn/AttnProjection/bias"]
 
-        params.attn_dec_w = var_dict[
-            "model/rnn_decoder_char/rnn/Attention/kernel"]
-        params.attn_dec_b = var_dict[
-            "model/rnn_decoder_char/rnn/Attention/bias"]
+        params.out_w = var_dict[
+            "model/rnn_decoder_char/rnn/OutputProjection/kernel"]
+        params.out_b = var_dict[
+            "model/rnn_decoder_char/rnn/OutputProjection/bias"]
+
+        if "model/rnn_decoder_char/rnn/SimpleProjection/kernel" in var_dict:
+            params.simple_w = var_dict[
+                "model/rnn_decoder_char/rnn/SimpleProjection/kernel"]
+            params.simple_b = var_dict[
+                "model/rnn_decoder_char/rnn/SimpleProjection/bias"]
+        else:
+            params.simple_w = None
+            params.simple_b = None
 
         params.attn_enc_w = np.squeeze(var_dict["model/rnn_decoder_char/AttnW"])
 
         params.attn_v = var_dict["model/rnn_decoder_char/AttnV"]
 
         params.embedding = var_dict["model/rnn_decoder_char/decoder/embedding"]
+        total_elems = 0
+        for _, value in params.items():
+            params_shape = value.shape
+            param_elems = 1
+            for dim in params_shape:
+                param_elems *= dim
+            total_elems += param_elems
+
+        print ("Total parameters in decoder: %d" %total_elems)
         return params
 
     def map_lm_variables(self, var_dict):
@@ -89,15 +111,19 @@ class BeamSearch(BaseParams):
         params.lstm_b = var_dict[
             "model/rnn_decoder_char/rnn/basic_lstm_cell/bias"]
 
-        params.inp_w = var_dict[
-            "model/rnn_decoder_char/rnn/InputProjection/kernel"]
-        params.inp_b = var_dict[
-            "model/rnn_decoder_char/rnn/InputProjection/bias"]
+        if "model/rnn_decoder_char/rnn/SimpleProjection/kernel" in var_dict:
+            params.simple_w = var_dict[
+                "model/rnn_decoder_char/rnn/SimpleProjection/kernel"]
+            params.simple_b = var_dict[
+                "model/rnn_decoder_char/rnn/SimpleProjection/bias"]
+        else:
+            params.simple_w = None
+            params.simple_b = None
 
-        params.attn_proj_w = var_dict[
-            "model/rnn_decoder_char/rnn/AttnOutputProjection/kernel"]
-        params.attn_proj_b = var_dict[
-            "model/rnn_decoder_char/rnn/AttnOutputProjection/bias"]
+        params.out_w = var_dict[
+            "model/rnn_decoder_char/rnn/OutputProjection/kernel"]
+        params.out_b = var_dict[
+            "model/rnn_decoder_char/rnn/OutputProjection/bias"]
 
         params.embedding = var_dict["model/rnn_decoder_char/decoder/embedding"]
         return params
