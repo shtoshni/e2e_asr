@@ -66,11 +66,11 @@ class LMModel(BaseParams):
 
         self.create_computational_graph()
         # Gradients and parameter updation for training the model.
-        trainable_vars = []
-        for var in tf.trainable_variables():
-            if "decoder_char" in var.name:
-                trainable_vars.append(var)
-                print (var.name)
+        trainable_vars = tf.trainable_variables()#[]
+        #for var in tf.trainable_variables():
+        #    if "decoder_char" in var.name:
+        #        trainable_vars.append(var)
+        #        print (var.name)
 
         # Initialize optimizer
         opt = tf.train.AdamOptimizer(self.learning_rate, name='AdamLM')
@@ -99,7 +99,7 @@ class LMModel(BaseParams):
             tf_utils.create_shifted_targets(self.encoder_inputs, self.seq_len)
         # Create computational graph
         # First encode input
-        with tf.variable_scope("rnn_decoder_char", reuse=True):
+        with tf.variable_scope("rnn_decoder_char", reuse=tf.AUTO_REUSE):
             self.outputs = self.encoder(self.encoder_inputs, self.seq_len)
 
         self.losses = LossUtils.cross_entropy_loss(

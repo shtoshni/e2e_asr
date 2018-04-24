@@ -24,6 +24,7 @@ class AttnDecoder(Decoder, BaseParams):
         params = super(AttnDecoder, cls).class_params()
         params['attention_vec_size'] = 64
         params['lm_hidden_size'] = 256
+        params['ind_softmax'] = False
         return params
 
     def __init__(self, isTraining, params=None, scope=None):
@@ -115,8 +116,13 @@ class AttnDecoder(Decoder, BaseParams):
                     with tf.variable_scope("AttnProjection"):
                         proj_output = _linear([self.get_state(state), attn_state[0]],
                                               self.params.hidden_size_dec, True)
-                    with tf.variable_scope("OutputProjection"):
-                        output = _linear([proj_output], self.params.vocab_size, True)
+                    if params.ind_softmax:
+                        # Don't share parameters with LM model
+                        with tf.variable_scope("OutputProjection2"):
+                            output = _linear([proj_output], self.params.vocab_size, True)
+                    else:
+                        with tf.variable_scope("OutputProjection"):
+                            output = _linear([proj_output], self.params.vocab_size, True)
 
 
                     if not self.isTraining:
@@ -176,3 +182,5 @@ class AttnDecoder(Decoder, BaseParams):
                             type=int, help="Attention vector size")
         parser.add_argument("-lm_hsize", "--lm_hidden_size", default=256,
                             type=int, help="Hidden Size of LM layer")
+        parser.add_argument('-ind_softmax', "--ind_softmax", default=False,
+                            action="store_true", help="Independent (from LM) softmax params")
