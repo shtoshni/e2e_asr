@@ -131,7 +131,7 @@ class Seq2SeqModel(BaseParams):
                 for dim in var.get_shape().as_list():
                     var_params *= dim
                 total_params += var_params
-            print ("\nTOTAL PARAMS: %.2f (in millions)\n" %(total_params/float(1e6)))
+            print ("\nTOTAL PARAMS: %.2f (in millions)\n" %(total_params/1e6))
 
             # Initialize optimizer
             opt = tf.train.AdamOptimizer(self.learning_rate)

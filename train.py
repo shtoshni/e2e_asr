@@ -22,6 +22,7 @@ import tensorflow as tf
 
 import data_utils
 import tf_utils
+import numpy as np
 from attn_decoder import AttnDecoder
 from encoder import Encoder
 from lm_encoder import LMEncoder
@@ -113,6 +114,19 @@ class Train(BaseParams):
         params = self.params
         lm_files = glob.glob(path.join(params.lm_data_dir, "lm*"))
         return lm_files
+
+    def get_buck_prob(self):
+        """The idea is that lower batch size bucket should have higher prob.
+        of being picked so that longer sequences which have higher batch size
+        are not left for the end in an epoch."""
+
+        buck_batch_size = self.params.buck_batch_size
+        # Prob. inversely proportional to batch size
+        unnorm_buck_probs = [max(buck_batch_size)/batch_size for batch_size in buck_batch_size]
+        unnorm_prob_sum = sum(unnorm_buck_probs)
+        buck_probs = [cur_unnorm_prob/unnorm_prob_sum
+                      for cur_unnorm_prob in unnorm_buck_probs]
+        return buck_probs
 
 
     def create_eval_model(self, dev_set, standalone=False):
@@ -232,6 +246,7 @@ class Train(BaseParams):
                     pass
 
 
+                buck_probs = self.get_buck_prob()
                 while epoch <= params.max_epochs:
                     print("\nEpochs done: %d" %epoch)
                     sys.stdout.flush()
@@ -242,7 +257,11 @@ class Train(BaseParams):
                         sess.run(train_set.data_iter.initializer)
                         active_handle_list.append(sess.run(train_set.data_iter.string_handle()))
 
-                    while active_handle_list:
+                    cur_buck_probs = copy.deepcopy(buck_probs)
+
+                    handle_idx_dict = dict(zip(active_handle_list, list(range(len(active_handle_list)))))
+
+                    while True:
                         task = ("lm" if (params.lm_prob > random.random()) else "asr")
                         if task == "lm":
                             try:
@@ -268,9 +287,9 @@ class Train(BaseParams):
                                 print ("LM Epoch done %d !!" %lm_model.epoch.eval())
 
                         else:
-                            cur_handle = random.choice(active_handle_list)
+                            cur_handle = np.random.choice(active_handle_list, p=cur_buck_probs)
                             try:
-                                output_feed = [model.updates,  model.losses]
+                                output_feed = [model.updates, model.losses]
 
                                 _, step_loss = sess.run(output_feed, feed_dict={handle: cur_handle})
                                 step_loss = step_loss["char"]
@@ -295,7 +314,7 @@ class Train(BaseParams):
                                     train_writer.add_summary(lr_summary, model.global_step.eval())
 
                                     decode_start_time = time.time()
-                                    asr_err_cur = self.eval_model.asr_decode(sess)
+                                    asr_err_cur = self.eval_model.greedy_decode(sess)
                                     decode_end_time = time.time() - decode_start_time
 
                                     print ("ASR error: %.4f, Decoding time: %s"
@@ -353,7 +372,13 @@ class Train(BaseParams):
                                     loss = 0.0
 
                             except tf.errors.OutOfRangeError:
-                                active_handle_list.remove(cur_handle)
+                                # 0 out the prob of the given handle
+                                cur_buck_probs[handle_idx_dict[cur_handle]] = 0
+                                sum_prob = sum(cur_buck_probs)
+                                if sum_prob > 0:
+                                    cur_buck_probs = [cur_prob/sum_prob for cur_prob in cur_buck_probs]
+                                else:
+                                    break
 
 
                     print ("Total steps: %d" %model.global_step.eval())

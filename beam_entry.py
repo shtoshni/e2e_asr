@@ -1,7 +1,7 @@
 class BeamEntry(object):
     """Beam entry class that stores info relevant for performing beam search."""
 
-    def __init__(self, index_seq, dec_state, context_vec, cum_attn_probs):
+    def __init__(self, index_seq, dec_state, context_vec, cum_attn_probs=None):
         self.index_seq = index_seq
         self.dec_state = dec_state
         self.context_vec = context_vec

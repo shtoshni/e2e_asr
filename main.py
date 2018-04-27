@@ -5,7 +5,7 @@ from __future__ import division
 
 import math
 import os
-os.environ['TF_CPP_MIN_LOG_LEVEL']='1'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
 
 from os import path
 import copy
@@ -20,11 +20,12 @@ import re
 from datetime import timedelta
 
 import numpy as np
-from bunch import Bunch, bunchify
 import editdistance as ed
 import tensorflow as tf
 
 import data_utils
+
+from bunch import Bunch, bunchify
 from attn_decoder import AttnDecoder
 from encoder import Encoder
 from eval_model import Eval
@@ -36,6 +37,7 @@ from lm_dataset import LMDataset
 from train import Train
 from beam_search import BeamSearch
 
+
 def parse_options():
     parser = argparse.ArgumentParser()
 
@@ -44,10 +46,9 @@ def parse_options():
     AttnDecoder.add_parse_options(parser)
     Seq2SeqModel.add_parse_options(parser)
     LMModel.add_parse_options(parser)
-
     BeamSearch.add_parse_options(parser)
 
-    parser.add_argument("-eval_dev", default=False, action="store_true",
+    parser.add_argument("-dev", default=False, action="store_true",
                         help="Get dev set results using the last saved model")
     parser.add_argument("-test", default=False, action="store_true",
                         help="Get test results using the last saved model")
@@ -58,7 +59,6 @@ def parse_options():
 
 def process_args(options):
     """Process arguments."""
-
     def get_train_dir(options):
         """Get train directory name given the options."""
         num_layer_string = ""
@@ -139,7 +139,7 @@ def process_args(options):
     train_params.lm_params = lm_params
     train_params.lm_enc_params = lm_enc_params
 
-    if not options['test'] and not options['eval_dev']:
+    if not options['test'] and not options['dev']:
         if not os.path.exists(options['train_dir']):
             os.makedirs(options['train_dir'])
             os.makedirs(options['best_model_dir'])
@@ -158,7 +158,7 @@ def process_args(options):
     proc_options.train_params = train_params
     proc_options.beam_search_params = beam_search_params
     proc_options.seq2seq_params = seq2seq_params
-    proc_options.eval_dev = options['eval_dev']
+    proc_options.dev = options['dev']
     proc_options.test = options['test']
 
     return proc_options
@@ -173,15 +173,15 @@ def launch_train(options):
 def launch_eval(options):
     with tf.Session() as sess:
         trainer = Train(options.seq2seq_params, options.train_params)
-        if options.eval_dev:
+        if options.dev:
             _, dev_set = trainer.get_data_sets()
         else:
             dataset_params = Bunch()
             dataset_params.batch_size = 64
             dataset_params.feat_length = options.train_params.feat_length
 
-            #test_files = glob.glob(path.join(options.train_params.data_dir, "eval2000*"))
-            test_files = glob.glob(path.join(options.train_params.data_dir, "dev_1k.3*"))
+            test_files = glob.glob(path.join(options.train_params.data_dir, "eval2000*"))
+            #test_files = glob.glob(path.join(options.train_params.data_dir, "dev_1k.0*"))
             print ("Total test files: %d" %len(test_files))
             dev_set = SpeechDataset(dataset_params, test_files,
                                     isTraining=False)
@@ -214,18 +214,21 @@ def launch_eval(options):
 
         print ("Using the model from: %s" %ckpt_path)
         start_time = time.time()
-        asr_perf, out_file = eval_model.beam_search_decode(
-            sess, ckpt_path, beam_search_params=options.beam_search_params, dev=options.eval_dev,
-            get_out_file=True)
+        if options.beam_search_params.beam_size == 1 and options.beam_search_params.lm_weight == 0.0:
+            # Run the GPU version
+            asr_perf = eval_model.greedy_decode(sess)
+        else:
+            asr_perf, out_file = eval_model.beam_search_decode(
+                sess, ckpt_path, beam_search_params=options.beam_search_params, dev=options.dev,
+                get_out_file=True)
+
         decoding_time = time.time() - start_time
         print ("Total decoding time: %s" %timedelta(seconds=decoding_time))
 
-        return asr_perf, out_file
-
 
 if __name__ == "__main__":
-    options = parse_options()
-    if options.eval_dev or options.test:
-        launch_eval(options)
+    OPTIONS = parse_options()
+    if OPTIONS.dev or OPTIONS.test:
+        launch_eval(OPTIONS)
     else:
-        launch_train(options)
+        launch_train(OPTIONS)
