@@ -221,13 +221,14 @@ class Train(BaseParams):
                     sess.run(lm_model.data_iter.initializer)
                 previous_errs = []
                 try:
-                    with open(path.join(params.train_dir, "asr_err.txt"), "r") as err_f:
-                        for line in err_f:
-                            previous_errs.append(float(line.strip()))
-                        print ("Previous perf. log of %d checkpoints loaded" %(len(previous_errs)))
-                        if not self.check_progess(previous_errs):
-                            print ("No improvement in 10 checkpoints")
-                            os._exit(1)
+                    if model.global_step.eval() >= params.min_steps:
+                        with open(path.join(params.train_dir, "asr_err.txt"), "r") as err_f:
+                            for line in err_f:
+                                previous_errs.append(float(line.strip()))
+                            print ("Previous perf. log of %d checkpoints loaded" %(len(previous_errs)))
+                            if not self.check_progess(previous_errs):
+                                print ("No improvement in 10 checkpoints")
+                                os._exit(1)
                 except:
                     pass
 
