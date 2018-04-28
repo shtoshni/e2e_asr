@@ -23,15 +23,14 @@ class BeamSearch(BaseParams):
         params['beam_size'] = 4
         params['lm_weight'] = 0.0
         params['lm_path'] = ""
-        params['word_ins_penalty'] = 0.0
+        params['word_ins_penalty'] = 0#np.arange(-1.0, 1.05, 0.05)
         params['cov_penalty'] = 0.0
 
         return params
 
-    def __init__(self, ckpt_path, rev_vocab, search_params=None):
+    def __init__(self, ckpt_path, search_params=None):
         """Initialize the model."""
         self.dec_params = self.map_dec_variables(self.get_model_params(ckpt_path))
-        self.rev_vocab = rev_vocab
 
         if search_params is None:
             self.search_params = self.class_params()
@@ -43,8 +42,8 @@ class BeamSearch(BaseParams):
             print ("No separate LM used")
         else:
             self.use_lm = True
-            self.lm_params = self.map_lm_variables(
-                self.get_model_params(self.search_params.lm_path))
+        self.lm_params = self.map_lm_variables(
+            self.get_model_params(self.search_params.lm_path))
         print ("Using a beam size of %d" %self.search_params.beam_size)
 
     def get_model_params(self, ckpt_path):
@@ -62,6 +61,11 @@ class BeamSearch(BaseParams):
             "model/rnn_decoder_char/rnn/basic_lstm_cell_1/kernel"]
         params.dec_lstm_b = var_dict[
             "model/rnn_decoder_char/rnn/basic_lstm_cell_1/bias"]
+
+        params.attn_dec_w = var_dict[
+            "model/rnn_decoder_char/rnn/Attention/kernel"]
+        params.attn_dec_b = var_dict[
+            "model/rnn_decoder_char/rnn/Attention/bias"]
 
         params.inp_w = var_dict[
             "model/rnn_decoder_char/rnn/InputProjection/kernel"]
@@ -94,13 +98,14 @@ class BeamSearch(BaseParams):
         params.embedding = var_dict["model/rnn_decoder_char/decoder/embedding"]
         total_elems = 0
         for _, value in params.items():
-            params_shape = value.shape
-            param_elems = 1
-            for dim in params_shape:
-                param_elems *= dim
-            total_elems += param_elems
+            if value is not None:
+                params_shape = value.shape
+                param_elems = 1
+                for dim in params_shape:
+                    param_elems *= dim
+                total_elems += param_elems
 
-        print ("Total parameters in decoder: %d" %total_elems)
+        print ("Total parameters in decoder (in million): %.2f" %(total_elems/float(1e6)))
         return params
 
     def map_lm_variables(self, var_dict):
@@ -161,7 +166,8 @@ class BeamSearch(BaseParams):
         search_params = self.search_params
 
         # Set up decoder components
-        dec_lstm = BasicLSTM(params.lstm_w, params.lstm_b)
+        dec_lstm = BasicLSTM(params.dec_lstm_w, params.dec_lstm_b)
+        dec_lm_lstm = BasicLSTM(params.lm_lstm_w, params.lm_lstm_b)
         attention_call = self.calc_attention(encoder_hidden_states)
 
         # Set up LM components
@@ -169,75 +175,48 @@ class BeamSearch(BaseParams):
         # LM uses a zero attn vector
         zero_attn = np.zeros(encoder_hidden_states.shape[1])
 
-        def get_top_k(x_dec, x_lm, state_list, cum_attn_probs, beam_size=search_params.beam_size):
-            dec_state, lm_state = state_list
+        def get_top_k(x, x_lm, state_list, context_vec,
+                      beam_size=search_params.beam_size):
+            dec_state, dec_lm_state, lm_state = state_list
+
+            dec_lm_state = dec_lm_lstm(x, dec_lm_state)
+            dec_lm_output = dec_lm_state[1]
+
+            if params.simple_w is not None:
+                dec_lm_output = (np.matmul(dec_lm_output, params.simple_w) +
+                                 params.simple_b)
+            context_lm_comb = np.concatenate((dec_lm_output, context_vec), axis=0)
+            x_dec = np.matmul(context_lm_comb, params.inp_w) + params.inp_b
 
             dec_state = dec_lstm(x_dec, dec_state)
-            context_vec, attn_probs = attention_call(dec_state[0])
+
+            context_vec, _ = attention_call(dec_state[0])
             context_dec_comb = np.concatenate((dec_state[0], context_vec), axis=0)
-            output_dec_probs = softmax(np.matmul(context_dec_comb, params.attn_proj_w) +
-                                       params.attn_proj_b)
+            proj_output = np.matmul(context_dec_comb, params.attn_proj_w) + params.attn_proj_b
+            output_dec_probs = softmax(np.matmul(proj_output, params.out_w) +
+                                       params.out_b)
             log_dec_probs = np.log(output_dec_probs)
 
             lm_state = lm_lstm(x_lm, lm_state)
-            context_lm_comb = np.concatenate((lm_state[0], zero_attn), axis=0)
-            output_lm_probs = softmax(np.matmul(context_lm_comb, lm_params.attn_proj_w) +
-                                      lm_params.attn_proj_b)
+            lm_output = lm_state[1]
+            if lm_params.simple_w is not None:
+                lm_output = (np.matmul(lm_output, lm_params.simple_w) +
+                             lm_params.simple_b)
+            output_lm_probs = softmax(np.matmul(lm_output, lm_params.out_w) +
+                                      lm_params.out_b)
             log_lm_probs = np.log(output_lm_probs)
             combined_log_probs = log_dec_probs + search_params.lm_weight * log_lm_probs
 
-            cov_loss = 0.0
-            if search_params.cov_penalty != 0:
-                cum_attn_probs += attn_probs
-                #cov_term_mat = np.log(np.minimum(cum_attn_probs, np.full_like(attn_probs, 0.8)))
-                cov_term_mat = np.log(cum_attn_probs)
-                cov_cost = np.sum(cov_term_mat)
-                cov_loss = search_params.cov_penalty * cov_cost
+            length_loss = 0.0
 
-            combined_score = combined_log_probs + cov_loss
+            combined_score = combined_log_probs + length_loss
 
             top_k_indices = np.argpartition(combined_score, -beam_size)[-beam_size:]
 
             # Return indices, their score, and the lstm state
             return (top_k_indices, combined_log_probs[top_k_indices],
                     combined_score[top_k_indices], [dec_state,
-                    lm_state], context_vec, cum_attn_probs)
-
-        return get_top_k
-
-
-    def top_k_setup(self, encoder_hidden_states):
-        params = self.dec_params
-        search_params = self.search_params
-
-        dec_lstm = BasicLSTM(params.lstm_w, params.lstm_b)
-        attention_call = self.calc_attention(encoder_hidden_states)
-
-        def get_top_k(x, state_list, cum_attn_probs, beam_size=search_params.beam_size):
-            dec_state = state_list[0]
-            dec_state = dec_lstm(x, dec_state)
-            context_vec, attn_probs = attention_call(dec_state[0])
-            context_dec_comb = np.concatenate((dec_state[0], context_vec), axis=0)
-
-            output_probs = softmax(np.matmul(context_dec_comb, params.attn_proj_w) +
-                                   params.attn_proj_b)
-            log_dec_probs = np.log(output_probs)
-            cov_loss = 0.0
-            if search_params.cov_penalty != 0:
-                cum_attn_probs += attn_probs
-                #cov_term_mat = np.log(np.minimum(cum_attn_probs, np.full_like(attn_probs, 0.8)))
-                cov_term_mat = np.log(cum_attn_probs)
-                cov_cost = np.sum(cov_term_mat)
-                cov_loss = search_params.cov_penalty * cov_cost
-
-            combined_score = log_dec_probs + cov_loss
-
-            top_k_indices = np.argpartition(combined_score, -beam_size)[-beam_size:]
-
-            # Return indices, their score, and the lstm state
-            return (top_k_indices, log_dec_probs[top_k_indices],
-                    combined_score[top_k_indices], [dec_state], context_vec,
-                    cum_attn_probs)
+                    dec_lm_state, lm_state], context_vec)
 
         return get_top_k
 
@@ -247,24 +226,24 @@ class BeamSearch(BaseParams):
         params = self.dec_params
         search_params = self.search_params
 
-        if self.use_lm:
-            lm_params = self.lm_params
-
-        if self.use_lm:
-            get_top_k_fn = self.top_k_setup_with_lm(encoder_hidden_states)
-        else:
-            get_top_k_fn = self.top_k_setup(encoder_hidden_states)
+        lm_params = self.lm_params
+        get_top_k_fn = self.top_k_setup_with_lm(encoder_hidden_states)
 
         x = params.embedding[data_utils.GO_ID]
-        if self.use_lm:
-            x_lm = lm_params.embedding[data_utils.GO_ID]
-        h_size = params.lstm_w.shape[1]/4
+        x_lm = lm_params.embedding[data_utils.GO_ID]
+
+        # Initialize Decoder states
+        h_size = params.dec_lstm_w.shape[1]/4
         zero_dec_state = (np.zeros(h_size), np.zeros(h_size))
-        if self.use_lm:
-            lm_h_size = lm_params.lstm_w.shape[1]/4
-            zero_lm_state = (np.zeros(lm_h_size), np.zeros(lm_h_size))
+
+        dec_lm_h_size = params.lm_lstm_w.shape[1]/4
+        zero_dec_lm_state = (np.zeros(dec_lm_h_size), np.zeros(dec_lm_h_size))
+
+        # Initialize LM state
+        lm_h_size = lm_params.lstm_w.shape[1]/4
+        zero_lm_state = (np.zeros(lm_h_size), np.zeros(lm_h_size))
+
         zero_attn = np.zeros(encoder_hidden_states.shape[1])
-        cum_attn_probs = np.zeros(encoder_hidden_states.shape[0])
 
         # Maintain a tuple of (output_indices, score, encountered EOS?)
         output_list = []
@@ -273,15 +252,12 @@ class BeamSearch(BaseParams):
         step_count = 0
 
         # Run step 0 separately
-        if self.use_lm:
-            top_k_indices, top_k_model_scores, top_k_scores, state_list, attn_state, cum_attn_probs =\
-                get_top_k_fn(x, x_lm, [zero_dec_state, zero_lm_state], cum_attn_probs, beam_size=k)
-        else:
-            top_k_indices, top_k_model_scores, top_k_scores, state_list, attn_state, cum_attn_probs =\
-                get_top_k_fn(x, [zero_dec_state], cum_attn_probs, beam_size=k)
+        top_k_indices, top_k_model_scores, top_k_scores, state_list, context_vec =\
+            get_top_k_fn(x, x_lm, [zero_dec_state, zero_dec_lm_state, zero_lm_state],
+                         zero_attn, beam_size=k)
         for idx in xrange(top_k_indices.shape[0]):
-            output_tuple = (BeamEntry([top_k_indices[idx]], state_list, attn_state,
-                                      cum_attn_probs), top_k_model_scores[idx])
+            output_tuple = (BeamEntry([top_k_indices[idx]], state_list, context_vec),
+                            top_k_model_scores[idx])
             if top_k_indices[idx] == data_utils.EOS_ID:
                 final_output_list.append(output_tuple)
                 # Decrease the beam size once EOS is encountered
@@ -299,25 +275,13 @@ class BeamSearch(BaseParams):
             score_list = []
             model_score_list = []
             index_list = []
-            cum_attn_probs_list = []
             for candidate, cand_score in output_list:
-                simple_input = params.embedding[candidate.get_last_output()]
-                concat_input = np.concatenate((simple_input, candidate.get_context_vec()),
-                                              axis=0)
-                x = np.matmul(concat_input, params.inp_w) + params.inp_b
+                x = params.embedding[candidate.get_last_output()]
+                x_lm = lm_params.embedding[candidate.get_last_output()]
 
-                if self.use_lm:
-                    lm_emb_input = lm_params.embedding[candidate.get_last_output()]
-                    concat_lm = np.concatenate((lm_emb_input, zero_attn), axis=0)
-                    x_lm = np.matmul(concat_lm, lm_params.inp_w) + lm_params.inp_b
-
-                    top_k_indices, top_k_model_scores, top_k_scores, state_list, context_vec, cum_attn_probs =\
-                        get_top_k_fn(x, x_lm, candidate.get_dec_state(),
-                                     candidate.get_cum_attn_probs(), beam_size=k)
-                else:
-                    top_k_indices, top_k_model_scores, top_k_scores, state_list, context_vec, cum_attn_probs =\
-                        get_top_k_fn(x, candidate.get_dec_state(),
-                                     candidate.get_cum_attn_probs(), beam_size=k)
+                top_k_indices, top_k_model_scores, top_k_scores, state_list, context_vec =\
+                    get_top_k_fn(x, x_lm, candidate.get_dec_state(),
+                                 candidate.get_context_vec(), beam_size=k)
 
                 next_dec_states.append(state_list)
                 next_context_vecs.append(context_vec)
@@ -325,7 +289,6 @@ class BeamSearch(BaseParams):
                 index_list.append(top_k_indices)
                 score_list.append(top_k_scores + cand_score)
                 model_score_list.append(top_k_model_scores + cand_score)
-                cum_attn_probs_list.append(cum_attn_probs)
 
             # Score of all k**2 continuations
             all_scores = np.concatenate(score_list, axis=0)
@@ -353,10 +316,10 @@ class BeamSearch(BaseParams):
                 new_index_seq = orig_cand.get_index_seq() + [next_elem]
                 dec_state = next_dec_states[orig_cand_idx]
                 context_vec = next_context_vecs[orig_cand_idx]
-                cum_attn_probs = cum_attn_probs_list[orig_cand_idx]
 
-                output_tuple = (BeamEntry(new_index_seq, dec_state, context_vec, cum_attn_probs),
-                                top_k_scores[idx])
+                output_tuple = (BeamEntry(new_index_seq, dec_state, context_vec),
+                                top_k_scores[idx] +
+                                search_params.word_ins_penalty*len(new_index_seq))
                 if next_elem == data_utils.EOS_ID:
                     # This sequence is finished. Put the output on the final list
                     # and reduce beam size
@@ -381,9 +344,7 @@ class BeamSearch(BaseParams):
         parser.add_argument("-beam_size", default=1, type=int, help="Beam size")
         parser.add_argument("-lm_weight", default=0.0, type=float, help="LM weight in decoding")
         parser.add_argument("-lm_path", default="/share/data/speech/shtoshni/research/asr_multi/"
-                            "code/lm/models/pretrain_simple_lm/lm.ckpt-222000", type=str,
+                            "code/lm/models/run_id_101/lm.ckpt-246000", type=str,
                             help="LM ckpt path")
-        parser.add_argument("-word_ins_penalty", default=0.0, type=float,
-                            help="Word insertion penalty")
         parser.add_argument("-cov_penalty", default=0.0, type=float,
                             help="Coverage penalty")
