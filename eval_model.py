@@ -66,6 +66,7 @@ class Eval(BaseParams):
         raw_asr_file = path.join(params.best_model_dir, 'raw_asr.txt')
 
         total_errors, total_words = 0, 0
+        sent_counter = 0
         # Initialize the dev iterator
         sess.run(self.model.data_iter.initializer)
 
@@ -105,6 +106,7 @@ class Eval(BaseParams):
                                         '{}\n'.format(' '.join(raw_asr_words)))
                         proc_dec_f.write(utt_ids[sent_id] + '\t' +
                                          '{}\n'.format(' '.join(decoded_words)))
+                        sent_counter += 1
 
                 except tf.errors.OutOfRangeError:
                     break
@@ -113,6 +115,7 @@ class Eval(BaseParams):
         except ZeroDivisionError:
             score = 0.0
 
+        print ("Total sentences: %d" %sent_counter)
         print ("Output at: %s" %str(raw_asr_file))
         print ("Score: %f" %score)
         return score

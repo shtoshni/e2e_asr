@@ -22,7 +22,7 @@ class AttnDecoder(Decoder, BaseParams):
     def class_params(cls):
         """Defines params of the class."""
         params = super(AttnDecoder, cls).class_params()
-        params['attention_vec_size'] = 64
+        params['attention_vec_size'] = 128
         params['lm_hidden_size'] = 256
         params['ind_softmax'] = False
         return params
@@ -178,7 +178,7 @@ class AttnDecoder(Decoder, BaseParams):
         super(AttnDecoder, cls).add_parse_options(parser)
         parser.add_argument("-samp_prob", "--samp_prob", default=0.1, type=float,
                             help="Scheduled sampling probability")
-        parser.add_argument("-attn_vec_size", "--attention_vec_size", default=64,
+        parser.add_argument("-attn_vec_size", "--attention_vec_size", default=128,
                             type=int, help="Attention vector size")
         parser.add_argument("-lm_hsize", "--lm_hidden_size", default=256,
                             type=int, help="Hidden Size of LM layer")
