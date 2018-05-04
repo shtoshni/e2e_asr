@@ -47,11 +47,11 @@ class Train(BaseParams):
         params['feat_length'] = 80
 
         # Data directories
-        params['data_dir'] = "/scratch2/asr_multi/data/tfrecords"
-        params['lm_data_dir'] = "/scratch2/asr_multi/data/tfrecords/fisher/red_0.7"
+        params['data_dir'] = "/scratch/asr_multi/data/tfrecords"
+        params['lm_data_dir'] = "/scratch/asr_multi/data/tfrecords/fisher/red_0.7"
         params['vocab_dir'] = "/share/data/speech/shtoshni/research/datasets/asr_swbd/lang/vocab"
 
-        params['train_base_dir'] = "/scratch2/asr_multi/models"
+        params['train_base_dir'] = "/scratch/asr_multi/models"
         # The train_dir and best_model_dir are supplied by the process_args() in main.py
         params['train_dir'] = "/scratch"
         params['best_model_dir'] = "/scratch"
@@ -68,6 +68,7 @@ class Train(BaseParams):
         params["pretrain_phone_path"] = ""
 
         params["chaos"] = False
+        params["subset_file"] = ""
         return params
 
     def __init__(self, model_params, train_params=None):
@@ -80,6 +81,16 @@ class Train(BaseParams):
         self.seq2seq_params = model_params
         self.eval_model = None
 
+    def load_train_subset_file(self, subset_file):
+        subset_file_dict = {}
+        try:
+            with open(subset_file) as f:
+                for line in f.readlines():
+                    subset_file_dict[line.strip()] = 0
+        except Error:
+            subset_file_dict = {}
+        return subset_file_dict
+
     def get_data_sets(self, logging=True):
         params = self.params
         buck_train_sets = []
@@ -89,11 +100,19 @@ class Train(BaseParams):
         dataset_params_def.batch_size = params.batch_size
         dataset_params_def.feat_length = params.feat_length
 
+        if params.subset_file:
+            subset_file_dict = self.load_train_subset_file(params.subset_file)
+        else:
+            subset_file_dict = None
+
         for batch_id, batch_size in enumerate(params.buck_batch_size):
             dataset_params = copy.deepcopy(dataset_params_def)
             dataset_params.batch_size = batch_size
+
             buck_train_files = glob.glob(path.join(
                 params.data_dir, "train_1k." + str(batch_id) + ".*"))
+            if subset_file_dict:
+                buck_train_files = [train_file for train_file in buck_train_files if path.basename(train_file) in subset_file_dict ]
             random.shuffle(buck_train_files)
             total_train_files += len(buck_train_files)
             buck_train_set = SpeechDataset(dataset_params, buck_train_files, isTraining=True)
@@ -399,16 +418,16 @@ class Train(BaseParams):
         parser.add_argument("-lm_prob", default=0.0, type=float,
                             help="Prob. of running the LM task")
         parser.add_argument("-run_id", "--run_id", default=0, type=int, help="Run ID")
-        parser.add_argument("-data_dir", default="/scratch2/asr_multi/data/tfrecords",
+        parser.add_argument("-data_dir", default="/scratch/asr_multi/data/tfrecords",
                             type=str, help="Data directory")
         parser.add_argument("-lm_data_dir",
-                            default="/scratch2/asr_multi/data/tfrecords/lm_all",
+                            default="/scratch/asr_multi/data/tfrecords/lm_all",
                             type=str, help="Data directory")
         parser.add_argument("-vocab_dir", "--vocab_dir", default="/share/data/speech/"
                             "shtoshni/research/datasets/asr_swbd/lang/vocab",
                             type=str, help="Vocab directory")
         parser.add_argument("-tb_dir", "--train_base_dir",
-                            default="/scratch2/asr_multi/models",
+                            default="/scratch/asr_multi/models",
                             type=str, help="Training directory")
         parser.add_argument("-feat_len", "--feat_length", default=80, type=int,
                             help="Number of features per frame")
@@ -424,5 +443,6 @@ class Train(BaseParams):
 
         parser.add_argument("-chaos", default=False, action="store_true",
                             help="Random seed is not controlled if set")
-
+        parser.add_argument("-subset_file", default="", type=str,
+                            help="Subset file")
 
