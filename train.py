@@ -277,7 +277,9 @@ class Train(BaseParams):
                         sess.run(train_set.data_iter.initializer)
                         active_handle_list.append(sess.run(train_set.data_iter.string_handle()))
 
-                    cur_buck_probs = copy.deepcopy(buck_probs)
+                    #cur_buck_probs = copy.deepcopy(buck_probs)
+                    #Uniform probability
+                    cur_buck_probs = [1.0/len(params.buck_batch_size) for _ in params.buck_batch_size]
 
                     handle_idx_dict = dict(zip(active_handle_list, list(range(len(active_handle_list)))))
 
