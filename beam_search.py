@@ -53,49 +53,49 @@ class BeamSearch(BaseParams):
     def map_dec_variables(self, var_dict):
         """Map loaded tensors from names to variables."""
         params = Bunch()
-        params.lm_lstm_w = var_dict[
-            "model/rnn_decoder_char/rnn/basic_lstm_cell/kernel"]
-        params.lm_lstm_b = var_dict[
-            "model/rnn_decoder_char/rnn/basic_lstm_cell/bias"]
-        params.dec_lstm_w = var_dict[
-            "model/rnn_decoder_char/rnn/basic_lstm_cell_1/kernel"]
-        params.dec_lstm_b = var_dict[
-            "model/rnn_decoder_char/rnn/basic_lstm_cell_1/bias"]
+        params.lm_lstm_w = np.asarray(var_dict[
+            "model/rnn_decoder_char/rnn/basic_lstm_cell/kernel"])
+        params.lm_lstm_b = np.asarray(var_dict[
+            "model/rnn_decoder_char/rnn/basic_lstm_cell/bias"])
+        params.dec_lstm_w = np.asarray(var_dict[
+            "model/rnn_decoder_char/rnn/basic_lstm_cell_1/kernel"])
+        params.dec_lstm_b = np.asarray(var_dict[
+            "model/rnn_decoder_char/rnn/basic_lstm_cell_1/bias"])
 
-        params.attn_dec_w = var_dict[
-            "model/rnn_decoder_char/rnn/Attention/kernel"]
-        params.attn_dec_b = var_dict[
-            "model/rnn_decoder_char/rnn/Attention/bias"]
+        params.attn_dec_w = np.asarray(var_dict[
+            "model/rnn_decoder_char/rnn/Attention/kernel"])
+        params.attn_dec_b = np.asarray(var_dict[
+            "model/rnn_decoder_char/rnn/Attention/bias"])
 
-        params.inp_w = var_dict[
-            "model/rnn_decoder_char/rnn/InputProjection/kernel"]
-        params.inp_b = var_dict[
-            "model/rnn_decoder_char/rnn/InputProjection/bias"]
+        params.inp_w = np.asarray(var_dict[
+            "model/rnn_decoder_char/rnn/InputProjection/kernel"])
+        params.inp_b = np.asarray(var_dict[
+            "model/rnn_decoder_char/rnn/InputProjection/bias"])
 
-        params.attn_proj_w = var_dict[
-            "model/rnn_decoder_char/rnn/AttnProjection/kernel"]
-        params.attn_proj_b = var_dict[
-            "model/rnn_decoder_char/rnn/AttnProjection/bias"]
+        params.attn_proj_w = np.asarray(var_dict[
+            "model/rnn_decoder_char/rnn/AttnProjection/kernel"])
+        params.attn_proj_b = np.asarray(var_dict[
+            "model/rnn_decoder_char/rnn/AttnProjection/bias"])
 
-        params.out_w = var_dict[
-            "model/rnn_decoder_char/rnn/OutputProjection/kernel"]
-        params.out_b = var_dict[
-            "model/rnn_decoder_char/rnn/OutputProjection/bias"]
+        params.out_w = np.asarray(var_dict[
+            "model/rnn_decoder_char/rnn/OutputProjection/kernel"])
+        params.out_b = np.asarray(var_dict[
+            "model/rnn_decoder_char/rnn/OutputProjection/bias"])
 
         if "model/rnn_decoder_char/rnn/SimpleProjection/kernel" in var_dict:
-            params.simple_w = var_dict[
-                "model/rnn_decoder_char/rnn/SimpleProjection/kernel"]
-            params.simple_b = var_dict[
-                "model/rnn_decoder_char/rnn/SimpleProjection/bias"]
+            params.simple_w = np.asarray(var_dict[
+                "model/rnn_decoder_char/rnn/SimpleProjection/kernel"])
+            params.simple_b = np.asarray(var_dict[
+                "model/rnn_decoder_char/rnn/SimpleProjection/bias"])
         else:
             params.simple_w = None
             params.simple_b = None
 
-        params.attn_enc_w = np.squeeze(var_dict["model/rnn_decoder_char/AttnW"])
+        params.attn_enc_w = np.squeeze(np.asarray(var_dict["model/rnn_decoder_char/AttnW"]))
 
-        params.attn_v = var_dict["model/rnn_decoder_char/AttnV"]
+        params.attn_v = np.asarray(var_dict["model/rnn_decoder_char/AttnV"])
 
-        params.embedding = var_dict["model/rnn_decoder_char/decoder/embedding"]
+        params.embedding = np.asarray(var_dict["model/rnn_decoder_char/decoder/embedding"])
         total_elems = 0
         for _, value in params.items():
             if value is not None:
@@ -111,26 +111,26 @@ class BeamSearch(BaseParams):
     def map_lm_variables(self, var_dict):
         """Map loaded tensors from names to variables."""
         params = Bunch()
-        params.lstm_w = var_dict[
-            "model/rnn_decoder_char/rnn/basic_lstm_cell/kernel"]
-        params.lstm_b = var_dict[
-            "model/rnn_decoder_char/rnn/basic_lstm_cell/bias"]
+        params.lstm_w = np.asarray(var_dict[
+            "model/rnn_decoder_char/rnn/basic_lstm_cell/kernel"])
+        params.lstm_b = np.asarray(var_dict[
+            "model/rnn_decoder_char/rnn/basic_lstm_cell/bias"])
 
         if "model/rnn_decoder_char/rnn/SimpleProjection/kernel" in var_dict:
-            params.simple_w = var_dict[
-                "model/rnn_decoder_char/rnn/SimpleProjection/kernel"]
-            params.simple_b = var_dict[
-                "model/rnn_decoder_char/rnn/SimpleProjection/bias"]
+            params.simple_w = np.asarray(var_dict[
+                "model/rnn_decoder_char/rnn/SimpleProjection/kernel"])
+            params.simple_b = np.asarray(var_dict[
+                "model/rnn_decoder_char/rnn/SimpleProjection/bias"])
         else:
             params.simple_w = None
             params.simple_b = None
 
-        params.out_w = var_dict[
-            "model/rnn_decoder_char/rnn/OutputProjection/kernel"]
-        params.out_b = var_dict[
-            "model/rnn_decoder_char/rnn/OutputProjection/bias"]
+        params.out_w = np.asarray(var_dict[
+            "model/rnn_decoder_char/rnn/OutputProjection/kernel"])
+        params.out_b = np.asarray(var_dict[
+            "model/rnn_decoder_char/rnn/OutputProjection/bias"])
 
-        params.embedding = var_dict["model/rnn_decoder_char/decoder/embedding"]
+        params.embedding = np.asarray(var_dict["model/rnn_decoder_char/decoder/embedding"])
         return params
 
 
@@ -308,7 +308,7 @@ class BeamSearch(BaseParams):
             new_output_list = []
 
             for idx in xrange(k):
-                orig_cand_idx = orig_cand_indices[idx]
+                orig_cand_idx = int(orig_cand_indices[idx])
                 # BeamEntry of the original candidate
                 orig_cand = output_list[orig_cand_idx][0]
                 next_elem = next_k_indices[idx]
@@ -344,7 +344,7 @@ class BeamSearch(BaseParams):
         parser.add_argument("-beam_size", default=1, type=int, help="Beam size")
         parser.add_argument("-lm_weight", default=0.0, type=float, help="LM weight in decoding")
         parser.add_argument("-lm_path", default="/share/data/speech/shtoshni/research/asr_multi/"
-                            "code/lm/models/run_id_101/lm.ckpt-246000", type=str,
+                            "code/lm/models/best_models/run_id_301/lm.ckpt-250000", type=str,
                             help="LM ckpt path")
         parser.add_argument("-cov_penalty", default=0.0, type=float,
                             help="Coverage penalty")
