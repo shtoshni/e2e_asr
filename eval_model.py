@@ -142,8 +142,8 @@ class Eval(BaseParams):
                     utt_id_list.append(utt_ids[idx])
                     gold_id_list.append(np.array(gold_ids[1:, idx]))  # Ignore the GO_ID
                     counter += 1
-                if counter > 500:
-                    break
+                #if counter > 500:
+                #    break
             except tf.errors.OutOfRangeError:
                 total_exec = True
                 break
@@ -166,13 +166,13 @@ class Eval(BaseParams):
         tf_out_file = get_tf_exec_file()
         load_success = True
         try:
-            #hidden_states_list, utt_id_list, gold_id_list = pickle.load(open(tf_out_file, "r"))
+            hidden_states_list, utt_id_list, gold_id_list = pickle.load(open(tf_out_file, "r"))
             print ("Loaded output of previous execution of TF from %s" %tf_out_file)
         except EOFError:
             load_success = False
         except IOError:
             load_success = False
-        load_success = False
+        #load_success = False
 
         if not load_success:
             # Execute the tensorflow part first to get the encoder_hidden_states etc
