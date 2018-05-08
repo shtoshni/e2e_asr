@@ -1,7 +1,7 @@
 from bunch import Bunch
 from copy import deepcopy
 
-import cupy as np
+import numpy as np
 
 import tf_utils
 import data_utils

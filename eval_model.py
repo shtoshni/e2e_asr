@@ -14,7 +14,7 @@ import cPickle as pickle
 import argparse
 
 import numpy as np
-import cupy as cp
+#import cupy as cp
 import tensorflow as tf
 
 from os import path
@@ -135,14 +135,14 @@ class Eval(BaseParams):
                                self.model.decoder_inputs["char"]]
 
                 encoder_hidden_states, seq_lens, utt_ids, gold_ids = sess.run(output_feed)
-                encoder_hidden_states = cp.asarray(encoder_hidden_states)
+                encoder_hidden_states = np.asarray(encoder_hidden_states)
                 batch_size = encoder_hidden_states.shape[0]
                 for idx in xrange(batch_size):
                     hidden_states_list.append(encoder_hidden_states[idx, :seq_lens[idx], :])
                     utt_id_list.append(utt_ids[idx])
                     gold_id_list.append(np.array(gold_ids[1:, idx]))  # Ignore the GO_ID
                     counter += 1
-                if counter > 200:
+                if counter > 500:
                     break
             except tf.errors.OutOfRangeError:
                 total_exec = True
