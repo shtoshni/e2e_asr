@@ -6,7 +6,6 @@ from __future__ import division
 import math
 import os
 import sys
-import multiprocessing as mp
 
 import time
 import random
@@ -22,9 +21,6 @@ from os import path
 from datetime import timedelta
 from bunch import Bunch
 from edit_distance import SequenceMatcher as ed
-from functools import reduce
-from multiprocessing import Queue
-from multiprocessing import Process
 
 import data_utils
 import swbd_utils
@@ -146,7 +142,7 @@ class Eval(BaseParams):
                     utt_id_list.append(utt_ids[idx])
                     gold_id_list.append(np.array(gold_ids[1:, idx]))  # Ignore the GO_ID
                     counter += 1
-                if counter > 100:
+                if counter > 200:
                     break
             except tf.errors.OutOfRangeError:
                 total_exec = True
