@@ -1,6 +1,6 @@
 """Implements the Basic LSTM cell of tensorflow required for beam search in numpy."""
 
-import numpy as np
+import cupy as np
 
 from num_utils import sigmoid
 

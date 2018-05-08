@@ -1,6 +1,6 @@
 """Implementation of some useful numerical functions using numpy."""
 
-import numpy as np
+import cupy as np
 
 
 def sigmoid(x):
