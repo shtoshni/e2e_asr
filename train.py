@@ -134,19 +134,6 @@ class Train(BaseParams):
         lm_files = glob.glob(path.join(params.lm_data_dir, "lm*"))
         return lm_files
 
-    def get_buck_prob(self):
-        """The idea is that lower batch size bucket should have higher prob.
-        of being picked so that longer sequences which have higher batch size
-        are not left for the end in an epoch."""
-
-        buck_batch_size = self.params.buck_batch_size
-        # Prob. inversely proportional to batch size
-        unnorm_buck_probs = [max(buck_batch_size)/batch_size for batch_size in buck_batch_size]
-        unnorm_prob_sum = sum(unnorm_buck_probs)
-        buck_probs = [cur_unnorm_prob/unnorm_prob_sum
-                      for cur_unnorm_prob in unnorm_buck_probs]
-        return buck_probs
-
 
     def create_eval_model(self, dev_set, standalone=False):
         with tf.variable_scope("model", reuse=(True if not standalone else None)):
@@ -266,7 +253,6 @@ class Train(BaseParams):
                     pass
 
 
-                buck_probs = self.get_buck_prob()
                 while epoch <= params.max_epochs:
                     print("\nEpochs done: %d" %epoch)
                     sys.stdout.flush()
@@ -276,10 +262,6 @@ class Train(BaseParams):
                     for train_set in buck_train_sets:
                         sess.run(train_set.data_iter.initializer)
                         active_handle_list.append(sess.run(train_set.data_iter.string_handle()))
-
-                    #cur_buck_probs = copy.deepcopy(buck_probs)
-                    #Uniform probability
-                    cur_buck_probs = [1.0/len(params.buck_batch_size) for _ in params.buck_batch_size]
 
                     handle_idx_dict = dict(zip(active_handle_list, list(range(len(active_handle_list)))))
 
@@ -309,7 +291,8 @@ class Train(BaseParams):
                                 print ("LM Epoch done %d !!" %lm_model.epoch.eval())
 
                         else:
-                            cur_handle = np.random.choice(active_handle_list, p=cur_buck_probs)
+                            # Pick the handle for the smallest utterances
+                            cur_handle = active_handle_list[0]
                             try:
                                 output_feed = [model.updates, model.losses]
 
@@ -395,11 +378,8 @@ class Train(BaseParams):
 
                             except tf.errors.OutOfRangeError:
                                 # 0 out the prob of the given handle
-                                cur_buck_probs[handle_idx_dict[cur_handle]] = 0
-                                sum_prob = sum(cur_buck_probs)
-                                if sum_prob > 0:
-                                    cur_buck_probs = [cur_prob/sum_prob for cur_prob in cur_buck_probs]
-                                else:
+                                del active_handle_list[0]
+                                if len(active_handle_list) == 0:
                                     break
 
 
