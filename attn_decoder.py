@@ -22,6 +22,7 @@ class AttnDecoder(Decoder, BaseParams):
     def class_params(cls):
         """Defines params of the class."""
         params = super(AttnDecoder, cls).class_params()
+        params['tie_embedding'] = False
         params['attention_vec_size'] = 128
         params['lm_hidden_size'] = 256
         params['ind_softmax'] = False
@@ -43,7 +44,11 @@ class AttnDecoder(Decoder, BaseParams):
         scope = "rnn_decoder" + ("" if self.scope is None else "_" + self.scope)
 
         with tf.variable_scope(scope):
-            decoder_inputs, loop_function = self.prepare_decoder_input(decoder_inp)
+            if params.tie_embedding:
+                embedding, decoder_inputs, loop_function = self.prepare_decoder_input(
+                    decoder_inp, get_embedding=True)
+            else:
+                decoder_inputs, loop_function = self.prepare_decoder_input(decoder_inp)
             lm_cell = self.get_cell(hidden_size=params.lm_hidden_size)
 
         # TensorArray is used to do dynamic looping over decoder input
@@ -116,13 +121,17 @@ class AttnDecoder(Decoder, BaseParams):
                     with tf.variable_scope("AttnProjection"):
                         proj_output = _linear([self.get_state(state), attn_state[0]],
                                               self.params.hidden_size_dec, True)
-                    if params.ind_softmax:
-                        # Don't share parameters with LM model
-                        with tf.variable_scope("OutputProjection2"):
-                            output = _linear([proj_output], self.params.vocab_size, True)
+                    if params.tie_embedding:
+                        output = (tf.matmul(proj_output, tf.transpose(embedding)) +
+                                  tf.get_variable("output_bias", [params.vocab_size]))
                     else:
-                        with tf.variable_scope("OutputProjection"):
-                            output = _linear([proj_output], self.params.vocab_size, True)
+                        if params.ind_softmax:
+                            # Don't share parameters with LM model
+                            with tf.variable_scope("OutputProjection2"):
+                                output = _linear([proj_output], self.params.vocab_size, True)
+                        else:
+                            with tf.variable_scope("OutputProjection"):
+                                output = _linear([proj_output], self.params.vocab_size, True)
 
 
                     if not self.isTraining:
@@ -176,6 +185,8 @@ class AttnDecoder(Decoder, BaseParams):
         """Add decoder specific arguments."""
         # Decoder params
         super(AttnDecoder, cls).add_parse_options(parser)
+        parser.add_argument("-tie_emb", "--tie_embedding", default=False, action="store_true",
+                            help="Tie output projection to input embedding")
         parser.add_argument("-samp_prob", "--samp_prob", default=0.1, type=float,
                             help="Scheduled sampling probability")
         parser.add_argument("-attn_vec_size", "--attention_vec_size", default=128,

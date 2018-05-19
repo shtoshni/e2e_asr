@@ -42,8 +42,10 @@ class Train(BaseParams):
 
         params['batch_size'] = 128
         params['buck_batch_size'] = [128, 128, 64, 64, 32]
+        #params['buck_batch_size'] = [32, 32, 16, 16, 8]
         params['max_epochs'] = 30
         params['min_steps'] = 25000
+        params['min_lr_rate'] = 1e-4
         params['feat_length'] = 80
 
         # Data directories
@@ -245,7 +247,7 @@ class Train(BaseParams):
                         for line in err_f:
                             previous_errs.append(float(line.strip()))
                         print ("Previous perf. log of %d checkpoints loaded" %(len(previous_errs)))
-                        if not (model.learning_rate.eval() > 1e-4):
+                        if not (model.learning_rate.eval() > params.min_lr_rate):
                             if not self.check_progess(previous_errs):
                                 print ("No improvement in 10 checkpoints")
                                 os._exit(1)
@@ -337,13 +339,13 @@ class Train(BaseParams):
                                             # error is getting worse w.r.t. the worst value in previous 3 checkpoints
                                             # If the code is not reaching this point then it's guaranteed that the
                                             # worst performance keeps improving
-                                            if model.learning_rate.eval() > 1e-4:
+                                            if model.learning_rate.eval() > params.min_lr_rate:
                                                 sess.run(model.learning_rate_decay_op)
                                                 print ("Learning rate decreased !!")
                                                 sys.stdout.flush()
 
                                     previous_errs.append(asr_err_cur)
-                                    if not (model.learning_rate.eval() > 1e-4):
+                                    if not (model.learning_rate.eval() > params.min_lr_rate):
                                         if not self.check_progess(previous_errs):
                                             print ("No improvement in 10 checkpoints")
                                             sys.exit()

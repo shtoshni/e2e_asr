@@ -10,6 +10,7 @@ from __future__ import print_function
 
 from bunch import Bunch
 import tensorflow as tf
+from tensorflow.contrib.rnn.python.ops.core_rnn_cell import _linear
 from base_params import BaseParams
 
 class Encoder(BaseParams):
@@ -24,10 +25,12 @@ class Encoder(BaseParams):
         params['out_prob'] = 0.9
         params['skip_step'] = 2  # Pyramidal architecture
         params['initial_res_fac'] = 1
-        params['use_lstm'] = False
         params['stack_cons'] = 1
         params['max_scaling_down'] = 8
 
+        params['max_pool'] = False
+        params['use_proj'] = False
+        params['use_lstm'] = False
         return params
 
     def __init__(self, params=None, isTraining=True):
@@ -82,6 +85,20 @@ class Encoder(BaseParams):
                 # Concatenate the output of forward and backward layer
                 encoder_outputs = tf.concat([encoder_output_fw,
                                              encoder_output_bw], 2)
+                if params.use_proj:
+                    encoder_outputs = tf.concat([encoder_output_fw,
+                                                 encoder_output_bw], 2)
+                    out_size = 2*params.hidden_size
+                    batch_size = tf.shape(encoder_outputs)[1]
+                    # Reshape output for matmul
+                    resh_outputs = tf.reshape(encoder_outputs, [-1, out_size])
+
+                    w_proj = tf.get_variable("W_proj", [out_size, params.hidden_size])
+                    b_proj = tf.get_variable("b_proj", [params.hidden_size])
+                    proj_outputs = tf.matmul(resh_outputs, w_proj) + b_proj
+
+                    # Convert to original shape
+                    encoder_outputs = tf.reshape(proj_outputs, [-1, batch_size, params.hidden_size])
             else:
                 encoder_outputs, _ = tf.nn.dynamic_rnn(
                     self.get_cell(),
@@ -109,10 +126,18 @@ class Encoder(BaseParams):
                                      params.skip_step-check_rem, feat_size])], 1)),
             lambda: tf.identity(input_tens))
 
-        output_tens = tf.reshape(
-            div_input_tens, [tf.shape(div_input_tens)[0],
-                             tf.cast(tf.shape(div_input_tens)[1]/params.skip_step, tf.int32),
-                             feat_size * params.skip_step])
+        if params.max_pool:
+            output_tens = tf.reshape(
+                div_input_tens, [tf.shape(div_input_tens)[0],
+                                 tf.cast(tf.shape(div_input_tens)[1]/params.skip_step, tf.int32),
+                                 params.skip_step, feat_size])
+            output_tens = tf.reduce_max(output_tens, axis=2)
+        else:
+            output_tens = tf.reshape(
+                div_input_tens, [tf.shape(div_input_tens)[0],
+                                 tf.cast(tf.shape(div_input_tens)[1]/params.skip_step, tf.int32),
+                                 feat_size * params.skip_step])
+
         # Get the ceil division since we pad it with 0s
         seq_len = tf.to_int64(tf.ceil(
             tf.truediv(seq_len, tf.cast(params.skip_step, dtype=tf.int64))))
@@ -188,6 +213,10 @@ class Encoder(BaseParams):
                             help="Screw GRU - Nobody cares about you GRU")
         parser.add_argument("-hsize", "--hidden_size", default=256, type=int,
                             help="Hidden layer size")
+        parser.add_argument("-use_proj", default=False, action="store_true",
+                            help="Use projection to project down the output of bidir LSTM")
+        parser.add_argument("-max_pool", default=False, action="store_true",
+                            help="Use max pooling to reduce time resolution")
 
         # Encoder params
         parser.add_argument("-skip_step", "--skip_step", default=2, type=int,

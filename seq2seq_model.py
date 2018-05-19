@@ -33,7 +33,7 @@ class Seq2SeqModel(BaseParams):
         params['tasks'] = ['char']
         params['num_layers'] = {'char': 4}
         params['max_output'] = {'char': 120}
-
+        params['label_smoothing'] = 0.05
         # Optimization params
         params['learning_rate'] = 1e-3
         params['learning_rate_decay_factor'] = 0.5
@@ -117,8 +117,9 @@ class Seq2SeqModel(BaseParams):
             for task in params.tasks:
                 task_depth = params.num_layers[task]
                 # Training outputs and losses.
-                self.losses[task] = LossUtils.cross_entropy_loss(
-                    self.outputs[task], self.targets[task], self.seq_len_target[task])
+                self.losses[task] = LossUtils.smooth_cross_entropy_loss(
+                    self.outputs[task], self.targets[task], self.decoder[task].params.vocab_size,
+                    self.seq_len_target[task], label_smoothing=params.label_smoothing)
 
             tf.summary.scalar('Negative log likelihood ' + task, self.losses[task])
             # Gradients and parameter updation for training the model.
@@ -196,6 +197,7 @@ class Seq2SeqModel(BaseParams):
             decoder_inputs["utt_id"] = batch["utt_id"]
         return [encoder_inputs, decoder_inputs, encoder_len, decoder_len]
 
+
     @classmethod
     def add_parse_options(cls, parser):
         # Seq2Seq params
@@ -209,6 +211,9 @@ class Seq2SeqModel(BaseParams):
                             type=int, help="Maximum length of char/word-piece sequence")
         parser.add_argument("-max_out_phone", "--max_output_phone", default=250,
                             type=int, help="Maximum length of phone sequence")
+        # Regularization params
+        parser.add_argument("-label_smoothing", default=0.0,
+                            type=float, help="Label smoothing")
         # Optimization params
         parser.add_argument("-lr_decay", "--learning_rate_decay_factor", default=0.5,
                             type=float, help="Learning rate decay factor")

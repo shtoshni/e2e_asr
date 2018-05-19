@@ -81,7 +81,7 @@ class Decoder(BaseParams):
 
         return state
 
-    def prepare_decoder_input(self, decoder_inputs):
+    def prepare_decoder_input(self, decoder_inputs, get_embedding=False):
         """Do this step before starting decoding.
 
         This step converts the decoder IDs to vectors and
@@ -112,7 +112,11 @@ class Decoder(BaseParams):
             # symbol. This funtion is used during decoding in RNNs
             loop_function = self._get_argmax(embedding)
 
-        return (embedded_inp, loop_function)
+        if get_embedding:
+            return (embedding, embedded_inp, loop_function)
+        else:
+            return (embedded_inp, loop_function)
+
 
     @abc.abstractmethod
     def __call__(self, decoder_inp, seq_len, encoder_hidden_states,
