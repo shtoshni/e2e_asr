@@ -82,7 +82,6 @@ class Seq2SeqModel(BaseParams):
         self.epoch = tf.Variable(0, trainable=False)
         self.epoch_incr = self.epoch.assign(self.epoch + 1)
 
-
         self.create_computational_graph()
 
     def create_computational_graph(self):

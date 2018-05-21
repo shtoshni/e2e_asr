@@ -32,6 +32,7 @@ class LossUtils(object):
             cost_per_example = tf.reduce_sum(loss, reduction_indices=0) /\
                 tf.cast(seq_len_target, tf.float32)
             # Return the average cost over all examples
+            return tf.reduce_mean(cost_per_example)
 
     @staticmethod
     def smooth_cross_entropy_loss(logits, targets, num_classes, seq_len_target,
@@ -48,10 +49,16 @@ class LossUtils(object):
         """
         with tf.name_scope("sequence_loss", [logits, targets]):
             flat_targets = tf.reshape(targets, [-1])
-            one_hot_labels = tf.one_hot(flat_targets, num_classes)
-            cost = tf.losses.softmax_cross_entropy(
-                onehot_labels=one_hot_labels, logits=logits,
-            label_smoothing=label_smoothing)
+
+            onehot_labels = tf.one_hot(flat_targets, num_classes)
+            #label_smoothing=0.0)
+            num_classes = tf.constant(num_classes, logits.dtype)
+            smooth_positives = 1.0 - label_smoothing
+            smooth_negatives = label_smoothing / num_classes
+            smoothed_labels = onehot_labels * smooth_positives + smooth_negatives
+
+            cost = tf.nn.softmax_cross_entropy_with_logits(
+                labels=smoothed_labels, logits=logits)#,
 
             # Mask this cost since the output sequence is padded
             batch_major_mask = tf.sequence_mask(seq_len_target,
@@ -65,5 +72,4 @@ class LossUtils(object):
             cost_per_example = tf.reduce_sum(loss, reduction_indices=0) /\
                 tf.cast(seq_len_target, tf.float32)
             # Return the average cost over all examples
-            return tf.reduce_mean(cost_per_example)
             return tf.reduce_mean(cost_per_example)

@@ -102,7 +102,7 @@ class LMModel(BaseParams):
         with tf.variable_scope("rnn_decoder_char", reuse=tf.AUTO_REUSE):
             self.outputs = self.encoder(self.encoder_inputs, self.seq_len)
 
-        self.losses = LossUtils.cross_entropy_loss(
+        self.losses = LossUtils.sparse_cross_entropy_loss(
             self.outputs, self.targets, self.seq_len)
 
     def get_batch(self):
