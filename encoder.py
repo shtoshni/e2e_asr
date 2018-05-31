@@ -215,7 +215,7 @@ class Encoder(BaseParams):
                             help="Hidden layer size")
         parser.add_argument("-use_proj", default=False, action="store_true",
                             help="Use projection to project down the output of bidir LSTM")
-        parser.add_argument("-max_pool", default=False, action="store_true",
+        parser.add_argument("-max_pool", default=True, action="store_true",
                             help="Use max pooling to reduce time resolution")
 
         # Encoder params

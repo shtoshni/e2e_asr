@@ -24,7 +24,6 @@ class AttnDecoder(Decoder, BaseParams):
         params = super(AttnDecoder, cls).class_params()
         params['tie_embedding'] = False
         params['attention_vec_size'] = 128
-        params['lm_hidden_size'] = 256
         params['ind_softmax'] = False
         return params
 
@@ -49,7 +48,6 @@ class AttnDecoder(Decoder, BaseParams):
                     decoder_inp, get_embedding=True)
             else:
                 decoder_inputs, loop_function = self.prepare_decoder_input(decoder_inp)
-            lm_cell = self.get_cell(hidden_size=params.lm_hidden_size)
 
         # TensorArray is used to do dynamic looping over decoder input
         inputs_ta = tf.TensorArray(size=params.max_output,
@@ -79,7 +77,7 @@ class AttnDecoder(Decoder, BaseParams):
             v = tf.get_variable("AttnV", [params.attention_vec_size])
 
             def raw_loop_function(time, cell_output, state, loop_state):
-                def attention(query, prev_alpha):
+                def attention(query):
                     """Put attention masks on hidden using hidden_features and query."""
                     with tf.variable_scope("Attention"):
                         y = _linear(query, params.attention_vec_size, True)
@@ -95,12 +93,11 @@ class AttnDecoder(Decoder, BaseParams):
                         alpha = tf.expand_dims(alpha, 2)
                         alpha = tf.expand_dims(alpha, 3)
                         context_vec = tf.reduce_sum(alpha * hidden, [1, 2])
-                    return tuple([context_vec, alpha])
+                    return context_vec
 
                 # If loop_function is set, we use it instead of decoder_inputs.
                 elements_finished = (time >= tf.cast(seq_len, tf.int32))
                 finished = tf.reduce_all(elements_finished)
-
 
                 if cell_output is None:
                     next_state = self.cell.zero_state(batch_size, dtype=tf.float32)
@@ -109,37 +106,30 @@ class AttnDecoder(Decoder, BaseParams):
                     # without the batch dimension
                     # Check here - https://www.tensorflow.org/api_docs/python/tf/nn/raw_rnn
                     output = tf.zeros((self.params.vocab_size))
-                    lm_input = inputs_ta.read(time)
-                    attn_state = tuple([attn, alpha])
-                    lm_state = lm_cell.zero_state(batch_size, dtype=tf.float32)
+                    attn_state = attn
+                    emb_input = inputs_ta.read(time)
                 else:
                     next_state = state
                     #loop_state = attention(cell_output, loop_state[1])
-                    lm_state, attn_state = loop_state
-                    attn_state = attention(self.get_state(state), attn_state[1])
+                    attn_state = attention(self.get_state(state))
 
                     with tf.variable_scope("AttnProjection"):
-                        proj_output = _linear([self.get_state(state), attn_state[0]],
+                        proj_output = _linear([self.get_state(state), attn_state],
                                               self.params.hidden_size_dec, True)
                     if params.tie_embedding:
                         output = (tf.matmul(proj_output, tf.transpose(embedding)) +
                                   tf.get_variable("output_bias", [params.vocab_size]))
                     else:
-                        if params.ind_softmax:
-                            # Don't share parameters with LM model
-                            with tf.variable_scope("OutputProjection2"):
-                                output = _linear([proj_output], self.params.vocab_size, True)
-                        else:
-                            with tf.variable_scope("OutputProjection"):
-                                output = _linear([proj_output], self.params.vocab_size, True)
+                        with tf.variable_scope("OutputProjection"):
+                            output = _linear([proj_output], self.params.vocab_size, True)
 
 
                     if not self.isTraining:
-                        lm_input = loop_function(output)
+                        emb_input = loop_function(output)
                     else:
                         if loop_function is not None:
                             random_prob = tf.random_uniform([])
-                            lm_input = tf.cond(
+                            emb_input = tf.cond(
                                 finished,
                                 lambda: tf.zeros([batch_size, emb_size], dtype=tf.float32),
                                 lambda: tf.cond(tf.less(random_prob, 1 - params.samp_prob),
@@ -147,32 +137,27 @@ class AttnDecoder(Decoder, BaseParams):
                                                 lambda: loop_function(output))
                             )
                         else:
-                            lm_input = tf.cond(
+                            emb_input = tf.cond(
                                 finished,
                                 lambda: tf.zeros([batch_size, emb_size], dtype=tf.float32),
                                 lambda: inputs_ta.read(time)
                             )
 
                 # Common calculations
-                lm_output, next_lm_state = lm_cell(lm_input, lm_state)
-                if params.lm_hidden_size != params.hidden_size_dec:
-                    with tf.variable_scope("SimpleProjection", reuse=tf.AUTO_REUSE):
-                        lm_output = _linear([lm_output], params.hidden_size_dec, True)
-
                 # Merge input and previous attentions into one vector of the right size.
-                input_size = lm_input.get_shape().with_rank(2)[1]
+                input_size = emb_input.get_shape().with_rank(2)[1]
                 if input_size.value is None:
                     raise ValueError("Could not infer input size from input")
                 with tf.variable_scope("InputProjection", reuse=tf.AUTO_REUSE):
-                    next_input = _linear([lm_output, attn_state[0]], input_size, True)
+                    next_input = _linear([emb_input, attn_state], input_size, True)
 
-                loop_state = tuple([next_lm_state, attn_state])
+                loop_state = attn_state
 
                 return (elements_finished, next_input, next_state, output, loop_state)
 
             # outputs is a TensorArray with T=max(sequence_length) entries
             # of shape Bx|V|
-            outputs, state, _ = tf.nn.raw_rnn(self.cell, raw_loop_function)
+            outputs, _, _ = tf.nn.raw_rnn(self.cell, raw_loop_function)
 
         # Concatenate the output across timesteps to get a tensor of TxBx|V|
         # shape
@@ -191,7 +176,3 @@ class AttnDecoder(Decoder, BaseParams):
                             help="Scheduled sampling probability")
         parser.add_argument("-attn_vec_size", "--attention_vec_size", default=128,
                             type=int, help="Attention vector size")
-        parser.add_argument("-lm_hsize", "--lm_hidden_size", default=256,
-                            type=int, help="Hidden Size of LM layer")
-        parser.add_argument('-ind_softmax', "--ind_softmax", default=False,
-                            action="store_true", help="Independent (from LM) softmax params")
