@@ -43,8 +43,9 @@ class Train(BaseParams):
         params['batch_size'] = 128
         params['buck_batch_size'] = [128, 128, 64, 64, 32]
         #params['buck_batch_size'] = [32, 32, 16, 16, 8]
-        params['max_epochs'] = 10
+        params['max_steps'] = 33000
         params['min_steps'] = 15000
+        params['max_epochs'] = 15
         params['min_lr_rate'] = 1e-4
         params['feat_length'] = 80
 
@@ -302,6 +303,8 @@ class Train(BaseParams):
                                 loss += step_loss / params.steps_per_checkpoint
 
                                 cur_global_step = model.global_step.eval()
+                                if cur_global_step > params.max_steps:
+                                    break
                                 if (cur_global_step >= params.min_steps):
                                     if cur_global_step >= (last_lr_decrease_step + 3000):
                                         # Roughly an epoch after last decrease
@@ -380,16 +383,20 @@ class Train(BaseParams):
                             except tf.errors.OutOfRangeError:
                                 # 0 out the prob of the given handle
                                 del active_handle_list[0]
-                                if len(active_handle_list) == 0:
+                                if not active_handle_list:
                                     break
 
 
-                    print ("Total steps: %d" %model.global_step.eval())
+                    cur_global_step = model.global_step.eval()
+                    print ("Total steps: %d" %cur_global_step)
+                    if cur_global_step > params.max_steps:
+                        break
                     sess.run(model.epoch_incr)
                     epoch += 1
                     epc_time = time.time() - epc_start_time
                     print ("\nEPOCH TIME: %s\n" %(str(timedelta(seconds=epc_time))))
                     sys.stdout.flush()
+
 
                     print ("Reshuffling ASR training data!")
                     buck_train_sets, dev_set = self.get_data_sets(logging=False)
@@ -416,8 +423,10 @@ class Train(BaseParams):
                             help="Number of features per frame")
         parser.add_argument("-steps_per_checkpoint", default=500,
                             type=int, help="Gradient steps per checkpoint")
-        parser.add_argument("-min_steps", "--min_steps", default=25000, type=int,
-                            help="Min steps BEFORE DECREASING LEARNING RATE")
+        parser.add_argument("-min_steps", "--min_steps", default=20000, type=int,
+                            help="min steps before decreasing learning rate")
+        parser.add_argument("-max_steps", default=33000, type=int,
+                            help="max training steps")
 
         parser.add_argument("-pretrain_lm_path", default="", type=str,
                             help="Pretrain language model path")
