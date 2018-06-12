@@ -43,8 +43,9 @@ class Train(BaseParams):
         params['batch_size'] = 128
         params['buck_batch_size'] = [128, 128, 64, 64, 32]
         #params['buck_batch_size'] = [32, 32, 16, 16, 8]
-        params['max_epochs'] = 30
-        params['min_steps'] = 25000
+        params['max_steps'] = 33000
+        params['min_steps'] = 15000
+        params['max_epochs'] = 15
         params['min_lr_rate'] = 1e-4
         params['feat_length'] = 80
 
@@ -238,20 +239,16 @@ class Train(BaseParams):
                 epc_time, loss = 0.0, 0.0
                 ckpt_start_time = time.time()
                 current_step = 0
+                # Last time step when LR was decreased
+                last_lr_decrease_step = 0
+
                 if params.lm_prob > 0:
                     lm_steps, lm_loss = 0, 0.0
                     sess.run(lm_model.data_iter.initializer)
-                previous_errs = []
                 try:
-                    with open(path.join(params.train_dir, "asr_err.txt"), "r") as err_f:
-                        for line in err_f:
-                            previous_errs.append(float(line.strip()))
-                        print ("Previous perf. log of %d checkpoints loaded" %(len(previous_errs)))
-                        if not (model.learning_rate.eval() > params.min_lr_rate):
-                            if not self.check_progess(previous_errs):
-                                print ("No improvement in 10 checkpoints")
-                                os._exit(1)
-                except:
+                    with open(path.join(params.train_dir, "last_lr_dec.txt"), "r") as err_f:
+                        last_lr_decrease_step = int(err_f.readline().strip())
+                except IOError:
                     pass
 
 
@@ -266,6 +263,7 @@ class Train(BaseParams):
                         active_handle_list.append(sess.run(train_set.data_iter.string_handle()))
 
                     handle_idx_dict = dict(zip(active_handle_list, list(range(len(active_handle_list)))))
+
 
                     while True:
                         task = ("lm" if (params.lm_prob > random.random()) else "asr")
@@ -304,6 +302,26 @@ class Train(BaseParams):
                                 current_step += 1
                                 loss += step_loss / params.steps_per_checkpoint
 
+                                cur_global_step = model.global_step.eval()
+                                if cur_global_step > params.max_steps:
+                                    break
+                                if (cur_global_step >= params.min_steps):
+                                    if cur_global_step >= (last_lr_decrease_step + 3000):
+                                        # Roughly an epoch after last decrease
+                                        # TODO: Change the constant 3K to actual epoch size
+                                        sess.run(model.learning_rate_decay_op)
+                                        print ("Learning rate decreased !!")
+                                        print ("LR: %.4f" % model.learning_rate.eval())
+
+                                        # Update last LR decrease step and write it in file
+                                        last_lr_decrease_step = cur_global_step
+                                        with open(path.join(params.train_dir,
+                                                            "last_lr_dec.txt"), "w") as err_f:
+                                            err_f.write(str(last_lr_decrease_step))
+                                            err_f.flush()
+
+                                        sys.stdout.flush()
+
                                 if current_step % params.steps_per_checkpoint == 0:
                                     # Print statistics for the previous epoch.
                                     perplexity = math.exp(loss) if loss < 300 else float('inf')
@@ -333,24 +351,6 @@ class Train(BaseParams):
                                     err_summary = tf_utils.get_summary(asr_err_cur, "ASR Error")
                                     train_writer.add_summary(err_summary, model.global_step.eval())
 
-                                    if model.global_step.eval() >= params.min_steps:
-                                        if len(previous_errs) > 3 and asr_err_cur >= max(previous_errs[-3:]):
-                                            # Training has already happened for min epochs and the dev
-                                            # error is getting worse w.r.t. the worst value in previous 3 checkpoints
-                                            # If the code is not reaching this point then it's guaranteed that the
-                                            # worst performance keeps improving
-                                            if model.learning_rate.eval() > params.min_lr_rate:
-                                                sess.run(model.learning_rate_decay_op)
-                                                print ("Learning rate decreased !!")
-                                                sys.stdout.flush()
-
-                                    previous_errs.append(asr_err_cur)
-                                    if not (model.learning_rate.eval() > params.min_lr_rate):
-                                        if not self.check_progess(previous_errs):
-                                            print ("No improvement in 10 checkpoints")
-                                            sys.exit()
-
-
                                     # Early stopping
                                     if asr_err_best > asr_err_cur:
                                         asr_err_best = asr_err_cur
@@ -360,17 +360,19 @@ class Train(BaseParams):
                                         sys.stdout.flush()
 
                                         # Save the best score
-                                        f = open(os.path.join(params.train_dir, "best.txt"), "w")
-                                        f.write(str(asr_err_best))
-                                        f.close()
+                                        with open(os.path.join(params.train_dir, "best.txt"), "w") as asr_f:
+                                            asr_f.write(str(asr_err_best))
 
                                         # Save the model in best model directory
                                         checkpoint_path = os.path.join(params.best_model_dir, "asr.ckpt")
-                                        best_model_saver.save(sess, checkpoint_path, global_step=model.global_step, write_meta_graph=False)
+                                        best_model_saver.save(sess, checkpoint_path,
+                                                              global_step=model.global_step,
+                                                              write_meta_graph=False)
 
                                     # Also save the model for plotting
                                     checkpoint_path = os.path.join(params.train_dir, "asr.ckpt")
-                                    model_saver.save(sess, checkpoint_path, global_step=model.global_step, write_meta_graph=False)
+                                    model_saver.save(sess, checkpoint_path, global_step=model.global_step,
+                                                     write_meta_graph=False)
 
                                     print ("\n")
                                     sys.stdout.flush()
@@ -381,16 +383,20 @@ class Train(BaseParams):
                             except tf.errors.OutOfRangeError:
                                 # 0 out the prob of the given handle
                                 del active_handle_list[0]
-                                if len(active_handle_list) == 0:
+                                if not active_handle_list:
                                     break
 
 
-                    print ("Total steps: %d" %model.global_step.eval())
+                    cur_global_step = model.global_step.eval()
+                    print ("Total steps: %d" %cur_global_step)
+                    if cur_global_step > params.max_steps:
+                        break
                     sess.run(model.epoch_incr)
                     epoch += 1
                     epc_time = time.time() - epc_start_time
                     print ("\nEPOCH TIME: %s\n" %(str(timedelta(seconds=epc_time))))
                     sys.stdout.flush()
+
 
                     print ("Reshuffling ASR training data!")
                     buck_train_sets, dev_set = self.get_data_sets(logging=False)
@@ -417,14 +423,17 @@ class Train(BaseParams):
                             help="Number of features per frame")
         parser.add_argument("-steps_per_checkpoint", default=500,
                             type=int, help="Gradient steps per checkpoint")
-        parser.add_argument("-min_steps", "--min_steps", default=25000, type=int,
-                            help="Min steps BEFORE DECREASING LEARNING RATE")
+        parser.add_argument("-min_steps", "--min_steps", default=20000, type=int,
+                            help="min steps before decreasing learning rate")
+        parser.add_argument("-max_steps", default=33000, type=int,
+                            help="max training steps")
 
         parser.add_argument("-pretrain_lm_path", default="", type=str,
                             help="Pretrain language model path")
-        parser.add_argument("-pretrain_phone_path", default="", type=str,
+        parser.add_argument("-pretrain_phone_path",
+                            default="/share/data/speech/shtoshni/research/asr_multi/code/pretrain_phone/models/"
+                            "best_models/skip_2_phone_4_lstm_run_id_1/phone.ckpt-31500", type=str,
                             help="Pretrain phone model path")
-
         parser.add_argument("-chaos", default=False, action="store_true",
                             help="Random seed is not controlled if set")
         parser.add_argument("-subset_file", default="", type=str,

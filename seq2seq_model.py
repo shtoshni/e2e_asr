@@ -211,7 +211,7 @@ class Seq2SeqModel(BaseParams):
         parser.add_argument("-max_out_phone", "--max_output_phone", default=250,
                             type=int, help="Maximum length of phone sequence")
         # Regularization params
-        parser.add_argument("-label_smoothing", default=0.0,
+        parser.add_argument("-label_smoothing", default=0.1,
                             type=float, help="Label smoothing")
         # Optimization params
         parser.add_argument("-lr_decay", "--learning_rate_decay_factor", default=0.5,
