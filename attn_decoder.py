@@ -154,7 +154,8 @@ class AttnDecoder(Decoder, BaseParams):
                             )
 
                 # Common calculations
-                lm_output, next_lm_state = lm_cell(lm_input, lm_state)
+                with tf.variable_scope("lm"):
+                    lm_output, next_lm_state = lm_cell(lm_input, lm_state)
                 if params.lm_hidden_size != params.hidden_size_dec:
                     with tf.variable_scope("SimpleProjection", reuse=tf.AUTO_REUSE):
                         lm_output = _linear([lm_output], params.hidden_size_dec, True)

@@ -43,9 +43,9 @@ class Train(BaseParams):
         params['batch_size'] = 128
         params['buck_batch_size'] = [128, 128, 64, 64, 32]
         #params['buck_batch_size'] = [32, 32, 16, 16, 8]
-        params['max_steps'] = 33000
-        params['min_steps'] = 15000
-        params['max_epochs'] = 15
+        params['max_steps'] = 15000
+        params['min_steps'] = 6000
+        params['max_epochs'] = 10
         params['min_lr_rate'] = 1e-4
         params['feat_length'] = 80
 
@@ -68,7 +68,8 @@ class Train(BaseParams):
 
         # Pretrained models path
         params["pretrain_lm_path"] = ""
-        params["pretrain_phone_path"] = ""
+        # Pretrain one layer model path
+        params["pretrain_ol_path"] = ""
 
         params["chaos"] = False
         params["subset_file"] = ""
@@ -136,6 +137,65 @@ class Train(BaseParams):
         params = self.params
         lm_files = glob.glob(path.join(params.lm_data_dir, "lm*"))
         return lm_files
+
+
+    def restore_lm_variables(self, sess, lm_ckpt_path):
+        """Restore LM variables."""
+        ckpt_reader = tf.train.NewCheckpointReader(lm_ckpt_path)
+        ckpt_vars = ckpt_reader.get_variable_to_shape_map()
+
+        var_names_map = {var.op.name: var for var in tf.trainable_variables()}
+
+        lm_lstm_w = None
+        lm_lstm_b = None
+        for var_name, var in var_names_map.items():
+            if "lstm" in var_name:
+                # We just have to handle lstm cells differently so as not to confuse
+                # with decoder cell
+                if "rnn/lm" in var_name:
+                    if "kernel" in var_name:
+                        lm_lstm_w = var
+                    else:
+                        lm_lstm_b = var
+                continue
+            else:
+                if var_name in ckpt_vars:
+                    try:
+                        sess.run(var.assign(ckpt_reader.get_tensor(var_name)))
+                        print ("Using pre-trained: %s" %var.name)
+                    except ValueError:
+                        print ("Shape wanted: %s, Shape stored: %s for %s"
+                               %(str(var.shape), str(ckpt_reader.get_tensor(var_name).shape),
+                                 var_name))
+
+        print ("Using pretrained model/rnn_decoder_char/rnn/lm/basic_lstm_cell/kernel")
+        print ("Using pretrained model/rnn_decoder_char/rnn/lm/basic_lstm_cell/bias")
+        sess.run(lm_lstm_w.assign(ckpt_reader.get_tensor(
+            "model/rnn_decoder_char/rnn/basic_lstm_cell/kernel")))
+        sess.run(lm_lstm_b.assign(ckpt_reader.get_tensor(
+            "model/rnn_decoder_char/rnn/basic_lstm_cell/bias")))
+
+
+    def restore_ol_variables(self, sess, ol_ckpt_path):
+        """Restore LM variables."""
+        ckpt_reader = tf.train.NewCheckpointReader(ol_ckpt_path)
+        ckpt_vars = ckpt_reader.get_variable_to_shape_map()
+
+        var_names_map = {var.op.name: var for var in tf.trainable_variables()}
+
+        for var_name, var in var_names_map.items():
+            if "embedding" in var_name:
+                # Restore embedding from LM
+                continue
+            else:
+                if var_name in ckpt_vars:
+                    try:
+                        sess.run(var.assign(ckpt_reader.get_tensor(var_name)))
+                        print ("Using pre-trained: %s" %var.name)
+                    except ValueError:
+                        print ("Shape wanted: %s, Shape stored: %s for %s"
+                               %(str(var.shape), str(ckpt_reader.get_tensor(var_name).shape),
+                                 var_name))
 
 
     def create_eval_model(self, dev_set, standalone=False):
@@ -209,9 +269,10 @@ class Train(BaseParams):
                 if not ckpt:
                     sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
                     if params.pretrain_lm_path:
-                        tf_utils.restore_common_variables(sess, params.pretrain_lm_path)
-                    if params.pretrain_phone_path:
-                        tf_utils.restore_common_variables(sess, params.pretrain_phone_path)
+                        #tf_utils.restore_common_variables(sess, params.pretrain_lm_path)
+                        self.restore_lm_variables(sess, params.pretrain_lm_path)
+                    if params.pretrain_ol_path:
+                        self.restore_ol_variables(sess, params.pretrain_ol_path)
 
 
                 else:
@@ -423,16 +484,18 @@ class Train(BaseParams):
                             help="Number of features per frame")
         parser.add_argument("-steps_per_checkpoint", default=500,
                             type=int, help="Gradient steps per checkpoint")
-        parser.add_argument("-min_steps", "--min_steps", default=20000, type=int,
+        parser.add_argument("-min_steps", "--min_steps", default=6000, type=int,
                             help="min steps before decreasing learning rate")
-        parser.add_argument("-max_steps", default=33000, type=int,
+        parser.add_argument("-max_steps", default=15000, type=int,
                             help="max training steps")
 
-        parser.add_argument("-pretrain_lm_path", default="", type=str,
-                            help="Pretrain language model path")
-        parser.add_argument("-pretrain_phone_path",
-                            default="/share/data/speech/shtoshni/research/asr_multi/code/pretrain_phone/models/"
-                            "best_models/skip_2_phone_4_lstm_run_id_1/phone.ckpt-31500", type=str,
+        parser.add_argument("-pretrain_lm_path",
+                            default="/share/data/speech/shtoshni/research/asr_multi/"
+                            "code/lm/models/best_models/run_id_301/lm.ckpt-250000",
+                            type=str, help="Pretrain language model path")
+        parser.add_argument("-pretrain_ol_path",
+                            default="/share/data/speech/shtoshni/research/asr_multi/models/best_models/"
+                            "skip_2_lstm_lm_prob_0.0_run_id_2702/asr.ckpt-28500", type=str,
                             help="Pretrain phone model path")
         parser.add_argument("-chaos", default=False, action="store_true",
                             help="Random seed is not controlled if set")
