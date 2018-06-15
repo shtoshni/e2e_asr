@@ -43,72 +43,70 @@ def grid_search(args):
 
     perf_file = path.join(cmd_dir, "perf.txt")
 
-    dev_cmd = base_cmd + " -eval_dev "
+    dev_cmd = base_cmd + " -dev "
     # Store best performances
     best_asr_perf = 1.00
-    best_beam_size = 1
+    best_beam_size = 10
     best_lm_weight = 0
 
     if args.use_lm:
-        lm_weight_options = [0, 0.05, 0.1]
+        lm_weight_options = [0.05, 0.1, 0.15, 0.2, 0.25]
     else:
         lm_weight_options = [0]
-
-    cov_penalty_options = list(np.linspace(0.05, 0.25, num=5))#[0, 0.05, 0.1]
 
     perf_dict = {}
     if path.isfile(perf_file):
         try:
             with open(perf_file, "r") as perf_f:
                 for line in perf_f.readlines():
-                    beam_size, coverage_penalty, lm_weight, asr_perf = line.strip().split()
+                    beam_size, lm_weight, asr_perf = line.strip().split()
                     # Prepare the keys
                     beam_size = int(beam_size)
-                    coverage_penalty = round(float(coverage_penalty), 4)
                     lm_weight = round(float(lm_weight), 4)
-                    perf_dict[(beam_size, coverage_penalty, lm_weight)] = float(asr_perf)
+                    perf_dict[(beam_size, lm_weight)] = float(asr_perf)
             print ("Loaded %d entries from grid search" %(len(perf_dict)))
             sys.stdout.flush()
         except ValueError:
             perf_dict = {}
 
     with open(perf_file, "a", 0) as perf_f:
-        for beam_size in [4, 8, 16]:
+        for beam_size in [10]:#[4, 8, 16]:
             print ("\nBeam size: %d" %beam_size)
             sys.stdout.flush()
 
-            for cov_penalty in cov_penalty_options:
-                for lm_weight in lm_weight_options:
-                    query_key = (beam_size, round(cov_penalty, 4), round(lm_weight, 4))
-                    if perf_dict.has_key(query_key):
-                        print ("From previous exec: ", end="")
-                        asr_perf = perf_dict[query_key]
-                    else:
-                        exec_cmd = (dev_cmd + " -beam_size " + str(beam_size)
-                                    + " -cov_penalty " + str(cov_penalty)
-                                    + " -lm_weight " + str(lm_weight))
-                        output = subprocess.check_output(exec_cmd, shell=True)
-                        asr_perf, _= parse_output(output)
-                        perf_f.write("%d %.4f %.4f %f\n" %(beam_size, cov_penalty, lm_weight, asr_perf))
-                        perf_f.flush()
+            for lm_weight in lm_weight_options:
+                print ("LM Weight: %.2f" %lm_weight)
+                sys.stdout.flush()
+                query_key = (beam_size, round(lm_weight, 4))
+                if perf_dict.has_key(query_key):
+                    print ("From previous exec: ", end="")
+                    asr_perf = perf_dict[query_key]
+                else:
+                    exec_cmd = (dev_cmd + " -beam_size " + str(beam_size)
+                                + " -lm_weight " + str(lm_weight))
+                    output = subprocess.check_output(exec_cmd, shell=True)
+                    asr_perf, _= parse_output(output)
+                    perf_f.write(output)
+                    perf_f.write("%d %.4f %f\n" %(beam_size, lm_weight, asr_perf))
+                    perf_f.flush()
 
-                    print ("ASR Error: %.4f, Beam size: %d, cov penalty: %.2f lm weight: %.2f" %
-                           (asr_perf, beam_size, cov_penalty, lm_weight))
+                print ("ASR Error: %.4f, Beam size: %d, lm weight: %.2f" %
+                       (asr_perf, beam_size, lm_weight))
+                sys.stdout.flush()
+
+                if asr_perf > (best_asr_perf + 0.05):
+                    # Don't think that lm_weight can
+                    # cause more this gain
+                    print ("Not exploring further increasing lm_weight")
                     sys.stdout.flush()
+                    break
 
-                    if asr_perf > (best_asr_perf + 0.05):
-                        # Don't think that lm_weight can
-                        # cause more this gain
-                        print ("Not exploring further increasing lm_weight")
-                        sys.stdout.flush()
-                        break
-
-                    if best_asr_perf > asr_perf:
-                        print ("Best config updated!!")
-                        sys.stdout.flush()
-                        best_asr_perf = asr_perf
-                        best_beam_size = beam_size
-                        best_lm_weight = lm_weight
+                if best_asr_perf > asr_perf:
+                    print ("Best config updated!!")
+                    sys.stdout.flush()
+                    best_asr_perf = asr_perf
+                    best_beam_size = beam_size
+                    best_lm_weight = lm_weight
 
     test_cmd = (base_cmd + " -test " + " -beam_size " + str(best_beam_size) +
                 " -lm_weight " + str(best_lm_weight))
