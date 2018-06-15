@@ -33,7 +33,7 @@ class Seq2SeqModel(BaseParams):
         params['tasks'] = ['char']
         params['num_layers'] = {'char': 4}
         params['max_output'] = {'char': 120}
-
+        params['label_smoothing'] = 0.05
         # Optimization params
         params['learning_rate'] = 1e-3
         params['learning_rate_decay_factor'] = 0.5
@@ -82,7 +82,6 @@ class Seq2SeqModel(BaseParams):
         self.epoch = tf.Variable(0, trainable=False)
         self.epoch_incr = self.epoch.assign(self.epoch + 1)
 
-
         self.create_computational_graph()
 
     def create_computational_graph(self):
@@ -117,21 +116,30 @@ class Seq2SeqModel(BaseParams):
             for task in params.tasks:
                 task_depth = params.num_layers[task]
                 # Training outputs and losses.
-                self.losses[task] = LossUtils.cross_entropy_loss(
-                    self.outputs[task], self.targets[task], self.seq_len_target[task])
+                self.losses[task] = LossUtils.smooth_cross_entropy_loss(
+                    self.outputs[task], self.targets[task], self.decoder[task].params.vocab_size,
+                    self.seq_len_target[task], label_smoothing=params.label_smoothing)
 
             tf.summary.scalar('Negative log likelihood ' + task, self.losses[task])
             # Gradients and parameter updation for training the model.
-            trainable_vars = tf.trainable_variables()
             total_params = 0
             print ("\nModel parameters:\n")
-            for var in trainable_vars:
-                print (("{0}: {1}").format(var.name, var.get_shape()))
+            for var in tf.trainable_variables():
                 var_params = 1
                 for dim in var.get_shape().as_list():
                     var_params *= dim
                 total_params += var_params
+                print (("{0}: {1}").format(var.name, var.get_shape()))
             print ("\nTOTAL PARAMS: %.2f (in millions)\n" %(total_params/1e6))
+
+            # Remove the LM LSTM params
+            trainable_vars = [var for var in tf.trainable_variables() if ("Controller" in var.name)
+                              or ("/FusionProjection/" in var.name) or
+                              ("/FinalProjection/" in var.name)]
+            print ("\nTRAINABLE VARS\n")
+            for var in trainable_vars:
+                print (("{0}: {1}").format(var.name, var.get_shape()))
+            print ("\n")
 
             # Initialize optimizer
             opt = tf.train.AdamOptimizer(self.learning_rate)
@@ -196,6 +204,7 @@ class Seq2SeqModel(BaseParams):
             decoder_inputs["utt_id"] = batch["utt_id"]
         return [encoder_inputs, decoder_inputs, encoder_len, decoder_len]
 
+
     @classmethod
     def add_parse_options(cls, parser):
         # Seq2Seq params
@@ -209,6 +218,9 @@ class Seq2SeqModel(BaseParams):
                             type=int, help="Maximum length of char/word-piece sequence")
         parser.add_argument("-max_out_phone", "--max_output_phone", default=250,
                             type=int, help="Maximum length of phone sequence")
+        # Regularization params
+        parser.add_argument("-label_smoothing", default=0.1,
+                            type=float, help="Label smoothing")
         # Optimization params
         parser.add_argument("-lr_decay", "--learning_rate_decay_factor", default=0.5,
                             type=float, help="Learning rate decay factor")

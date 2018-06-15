@@ -46,7 +46,7 @@ class Decoder(BaseParams):
         params = self.params
         self.isTraining = isTraining
 
-    def get_cell(self, hidden_size=None):
+    def get_cell(self, hidden_size=None, trainable=True):
         """Create the LSTM cell used by decoder."""
         params = self.params
         if hidden_size is None:
@@ -94,25 +94,29 @@ class Decoder(BaseParams):
         params = self.params
         with tf.variable_scope("decoder"):
             # Create an embedding matrix
-            embedding = tf.get_variable(
+            embedding_lm = tf.get_variable(
+                "lm_embedding", [params.vocab_size, params.emb_size],
+                initializer=tf.random_uniform_initializer(-1.0, 1.0))
+            embedding_dec = tf.get_variable(
                 "embedding", [params.vocab_size, params.emb_size],
                 initializer=tf.random_uniform_initializer(-1.0, 1.0))
             # Embed the decoder input via embedding lookup operation
-            embedded_inp = tf.nn.embedding_lookup(embedding, decoder_inputs)
+            embedded_lm_inp = tf.nn.embedding_lookup(embedding_lm, decoder_inputs)
+            embedded_dec_inp = tf.nn.embedding_lookup(embedding_dec, decoder_inputs)
         if self.isTraining:
             if params.samp_prob > 0:
                 # This loop function samples the output from the posterior
                 # and embeds this output.
-                loop_function = self._sample_argmax(embedding)
+                loop_function = self._sample_argmax(embedding_lm, embedding_dec)
                 print ("Scheduled sampling!")
             else:
                 loop_function = None
         else:
             # Get the loop function that would embed the maximum posterior
             # symbol. This funtion is used during decoding in RNNs
-            loop_function = self._get_argmax(embedding)
+            loop_function = self._get_argmax(embedding_lm, embedding_dec)
 
-        return (embedded_inp, loop_function)
+        return (embedded_lm_inp, embedded_dec_inp, loop_function)
 
     @abc.abstractmethod
     def __call__(self, decoder_inp, seq_len, encoder_hidden_states,
@@ -136,7 +140,7 @@ class Decoder(BaseParams):
         """
         pass
 
-    def _get_argmax(self, embedding):
+    def _get_argmax(self, embedding_lm, embedding_dec):
         """Return a function that returns the previous output with max prob.
 
         Args:
@@ -147,12 +151,13 @@ class Decoder(BaseParams):
         """
         def loop_function(logits):
             max_symb = tf.argmax(logits, 1)
-            emb_symb = tf.nn.embedding_lookup(embedding, max_symb)
-            return emb_symb
+            emb_lm = tf.nn.embedding_lookup(embedding_lm, max_symb)
+            emb_dec = tf.nn.embedding_lookup(embedding_dec, max_symb)
+            return emb_lm, emb_dec
 
         return loop_function
 
-    def _sample_argmax(self, embedding):
+    def _sample_argmax(self, embedding_lm, embedding_dec):
         """Return a function that samples from posterior over previous output.
 
         Args:
@@ -174,8 +179,9 @@ class Decoder(BaseParams):
             # Reshaping is required to remove the extra dimension introduced
             # by sampling for a batch size of 1.
             prev_symbol = tf.reshape(tf.multinomial(prev, 1), [-1])
-            emb_prev = tf.nn.embedding_lookup(embedding, prev_symbol)
-            return emb_prev
+            emb_lm = tf.nn.embedding_lookup(embedding_lm, prev_symbol)
+            emb_dec = tf.nn.embedding_lookup(embedding_dec, prev_symbol)
+            return emb_lm, emb_dec
 
         return loop_function
 

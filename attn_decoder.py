@@ -22,6 +22,7 @@ class AttnDecoder(Decoder, BaseParams):
     def class_params(cls):
         """Defines params of the class."""
         params = super(AttnDecoder, cls).class_params()
+        params['tie_embedding'] = False
         params['attention_vec_size'] = 128
         params['lm_hidden_size'] = 256
         params['ind_softmax'] = False
@@ -43,13 +44,16 @@ class AttnDecoder(Decoder, BaseParams):
         scope = "rnn_decoder" + ("" if self.scope is None else "_" + self.scope)
 
         with tf.variable_scope(scope):
-            decoder_inputs, loop_function = self.prepare_decoder_input(decoder_inp)
+            lm_inputs, decoder_inputs, loop_function = self.prepare_decoder_input(decoder_inp)
             lm_cell = self.get_cell(hidden_size=params.lm_hidden_size)
 
         # TensorArray is used to do dynamic looping over decoder input
-        inputs_ta = tf.TensorArray(size=params.max_output,
-                                   dtype=tf.float32)
-        inputs_ta = inputs_ta.unstack(decoder_inputs)
+        lm_inputs_ta = tf.TensorArray(size=params.max_output, dtype=tf.float32)
+        lm_inputs_ta = lm_inputs_ta.unstack(lm_inputs)
+
+        # TensorArray is used to do dynamic looping over decoder input
+        dec_inputs_ta = tf.TensorArray(size=params.max_output, dtype=tf.float32)
+        dec_inputs_ta = dec_inputs_ta.unstack(decoder_inputs)
 
         batch_size = tf.shape(decoder_inputs)[1]
         attn_length = tf.shape(encoder_hidden_states)[1]
@@ -104,60 +108,61 @@ class AttnDecoder(Decoder, BaseParams):
                     # without the batch dimension
                     # Check here - https://www.tensorflow.org/api_docs/python/tf/nn/raw_rnn
                     output = tf.zeros((self.params.vocab_size))
-                    lm_input = inputs_ta.read(time)
+                    next_lm_input, next_dec_input =\
+                        lm_inputs_ta.read(time), dec_inputs_ta.read(time)
                     attn_state = tuple([attn, alpha])
                     lm_state = lm_cell.zero_state(batch_size, dtype=tf.float32)
                 else:
                     next_state = state
                     #loop_state = attention(cell_output, loop_state[1])
-                    lm_state, attn_state = loop_state
+                    lm_state, attn_state, lm_input = loop_state
+                    # LM hidden state
+                    with tf.variable_scope("lm"):
+                        lm_output, lm_state = lm_cell(lm_input, lm_state)
+                    if params.lm_hidden_size != params.hidden_size_dec:
+                        with tf.variable_scope("SimpleProjection"):
+                            lm_output = _linear([lm_output], self.params.hidden_size_dec, True)
+
+                    with tf.variable_scope("Controller"):
+                        controller_val = tf.sigmoid(_linear([lm_output], 1, True))
+                        lm_output = controller_val * lm_output
+
                     attn_state = attention(self.get_state(state), attn_state[1])
 
-                    with tf.variable_scope("AttnProjection"):
-                        proj_output = _linear([self.get_state(state), attn_state[0]],
+                    with tf.variable_scope("FusionProjection"):
+                        proj_output = _linear([self.get_state(state), lm_output, attn_state[0]],
                                               self.params.hidden_size_dec, True)
-                    if params.ind_softmax:
-                        # Don't share parameters with LM model
-                        with tf.variable_scope("OutputProjection2"):
-                            output = _linear([proj_output], self.params.vocab_size, True)
-                    else:
-                        with tf.variable_scope("OutputProjection"):
-                            output = _linear([proj_output], self.params.vocab_size, True)
+                    with tf.variable_scope("FinalProjection"):
+                        output = _linear([proj_output], self.params.vocab_size, True)
 
 
                     if not self.isTraining:
-                        lm_input = loop_function(output)
+                        next_lm_input, next_dec_input = loop_function(output)
                     else:
                         if loop_function is not None:
                             random_prob = tf.random_uniform([])
-                            lm_input = tf.cond(
+                            next_lm_input, next_dec_input = tf.cond(
                                 finished,
-                                lambda: tf.zeros([batch_size, emb_size], dtype=tf.float32),
+                                lambda: (tf.zeros([batch_size, emb_size], dtype=tf.float32),
+                                         tf.zeros([batch_size, emb_size], dtype=tf.float32)),
                                 lambda: tf.cond(tf.less(random_prob, 1 - params.samp_prob),
-                                                lambda: inputs_ta.read(time),
+                                                lambda: (lm_inputs_ta.read(time), dec_inputs_ta.read(time)),
                                                 lambda: loop_function(output))
                             )
                         else:
-                            lm_input = tf.cond(
+                            next_lm_input, next_dec_input = tf.cond(
                                 finished,
-                                lambda: tf.zeros([batch_size, emb_size], dtype=tf.float32),
-                                lambda: inputs_ta.read(time)
+                                lambda: (tf.zeros([batch_size, emb_size], dtype=tf.float32),
+                                         tf.zeros([batch_size, emb_size], dtype=tf.float32)),
+                                lambda: (lm_inputs_ta.read(time), dec_inputs_ta.read(time))
                             )
 
-                # Common calculations
-                lm_output, next_lm_state = lm_cell(lm_input, lm_state)
-                if params.lm_hidden_size != params.hidden_size_dec:
-                    with tf.variable_scope("SimpleProjection", reuse=tf.AUTO_REUSE):
-                        lm_output = _linear([lm_output], params.hidden_size_dec, True)
-
+                input_size = next_dec_input.get_shape().with_rank(2)[1]
                 # Merge input and previous attentions into one vector of the right size.
-                input_size = lm_input.get_shape().with_rank(2)[1]
-                if input_size.value is None:
-                    raise ValueError("Could not infer input size from input")
                 with tf.variable_scope("InputProjection", reuse=tf.AUTO_REUSE):
-                    next_input = _linear([lm_output, attn_state[0]], input_size, True)
+                    next_input = _linear([next_dec_input, attn_state[0]], input_size, True)
 
-                loop_state = tuple([next_lm_state, attn_state])
+                loop_state = tuple([lm_state, attn_state, next_lm_input])
 
                 return (elements_finished, next_input, next_state, output, loop_state)
 
@@ -176,11 +181,13 @@ class AttnDecoder(Decoder, BaseParams):
         """Add decoder specific arguments."""
         # Decoder params
         super(AttnDecoder, cls).add_parse_options(parser)
+        parser.add_argument("-tie_emb", "--tie_embedding", default=False, action="store_true",
+                            help="Tie output projection to input embedding")
         parser.add_argument("-samp_prob", "--samp_prob", default=0.1, type=float,
                             help="Scheduled sampling probability")
         parser.add_argument("-attn_vec_size", "--attention_vec_size", default=128,
                             type=int, help="Attention vector size")
-        parser.add_argument("-lm_hsize", "--lm_hidden_size", default=256,
+        parser.add_argument("-lm_hsize", "--lm_hidden_size", default=512,
                             type=int, help="Hidden Size of LM layer")
         parser.add_argument('-ind_softmax', "--ind_softmax", default=False,
                             action="store_true", help="Independent (from LM) softmax params")

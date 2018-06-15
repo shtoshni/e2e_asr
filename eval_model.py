@@ -142,7 +142,7 @@ class Eval(BaseParams):
                     utt_id_list.append(utt_ids[idx])
                     gold_id_list.append(np.array(gold_ids[1:, idx]))  # Ignore the GO_ID
                     counter += 1
-                #if counter > 500:
+                #if counter > 200:
                 #    break
             except tf.errors.OutOfRangeError:
                 total_exec = True

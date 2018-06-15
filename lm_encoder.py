@@ -23,13 +23,14 @@ class LMEncoder(BaseParams):
     def class_params(cls):
         """Decoder class parameters."""
         params = Bunch()
-        params['out_prob'] = 0.9
+        params['lm_out_prob'] = 0.9
         params['lm_hidden_size'] = 256
         params['proj_size'] = 256
         params['num_layers'] = 1
         params['emb_size'] = 256
         params['vocab_size'] = 1000
 
+        params['lm_variational_drop'] = False
         return params
 
     def __init__(self, isTraining=True, params=None):
