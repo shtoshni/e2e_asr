@@ -192,7 +192,7 @@ class AttnDecoder(Decoder, BaseParams):
                             help="Scheduled sampling probability")
         parser.add_argument("-attn_vec_size", "--attention_vec_size", default=128,
                             type=int, help="Attention vector size")
-        parser.add_argument("-lm_hsize", "--lm_hidden_size", default=256,
+        parser.add_argument("-lm_hsize", "--lm_hidden_size", default=512,
                             type=int, help="Hidden Size of LM layer")
         parser.add_argument('-ind_softmax', "--ind_softmax", default=False,
                             action="store_true", help="Independent (from LM) softmax params")

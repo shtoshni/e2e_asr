@@ -94,7 +94,7 @@ class LMEncoder(BaseParams):
         outputs, _ = \
             tf.nn.dynamic_rnn(self.cell, emb_inputs,
                               sequence_length=seq_len,
-                              dtype=tf.float32, time_major=True)
+                              dtype=tf.float32, time_major=True, scope="rnn/lm")
         # T x B x H => (T x B) x H
         outputs = tf.reshape(outputs, [-1, self.cell.output_size])
 
