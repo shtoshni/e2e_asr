@@ -33,6 +33,7 @@ class Seq2SeqModel(BaseParams):
         params['tasks'] = ['char']
         params['num_layers'] = {'char': 4}
         params['max_output'] = {'char': 120}
+        params['label_smoothing'] = 0.05
 
         # Optimization params
         params['learning_rate'] = 1e-3
@@ -117,12 +118,19 @@ class Seq2SeqModel(BaseParams):
             for task in params.tasks:
                 task_depth = params.num_layers[task]
                 # Training outputs and losses.
-                self.losses[task] = LossUtils.cross_entropy_loss(
-                    self.outputs[task], self.targets[task], self.seq_len_target[task])
+                self.losses[task] = LossUtils.smooth_cross_entropy_loss(
+                    self.outputs[task], self.targets[task], self.decoder[task].params.vocab_size,
+                    self.seq_len_target[task], label_smoothing=params.label_smoothing)
 
             tf.summary.scalar('Negative log likelihood ' + task, self.losses[task])
             # Gradients and parameter updation for training the model.
             trainable_vars = tf.trainable_variables()
+            # Remove the LM LSTM params
+            trainable_vars = [var for var in trainable_vars if ("/lm/" not in var.name)
+                              and ("/SimpleProjection/" not in var.name) and
+                              ("/OutputProjection/" not in var.name) and
+                              ("/embedding" not in var.name)]
+
             total_params = 0
             print ("\nModel parameters:\n")
             for var in trainable_vars:
@@ -131,6 +139,16 @@ class Seq2SeqModel(BaseParams):
                 for dim in var.get_shape().as_list():
                     var_params *= dim
                 total_params += var_params
+
+            print ("\nFrozen params:\n")
+            lm_vars = list(set(tf.trainable_variables()).difference(set(trainable_vars)))
+            for var in lm_vars:
+                print (("{0}: {1}").format(var.name, var.get_shape()))
+                var_params = 1
+                for dim in var.get_shape().as_list():
+                    var_params *= dim
+                total_params += var_params
+
             print ("\nTOTAL PARAMS: %.2f (in millions)\n" %(total_params/1e6))
 
             # Initialize optimizer
@@ -209,6 +227,9 @@ class Seq2SeqModel(BaseParams):
                             type=int, help="Maximum length of char/word-piece sequence")
         parser.add_argument("-max_out_phone", "--max_output_phone", default=250,
                             type=int, help="Maximum length of phone sequence")
+        # Regularization params
+        parser.add_argument("-label_smoothing", default=0.1,
+                            type=float, help="Label smoothing")
         # Optimization params
         parser.add_argument("-lr_decay", "--learning_rate_decay_factor", default=0.5,
                             type=float, help="Learning rate decay factor")

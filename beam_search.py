@@ -7,7 +7,7 @@ import tf_utils
 import data_utils
 
 from beam_entry import BeamEntry
-from num_utils import softmax
+from num_utils import softmax, sigmoid, relu
 from basic_lstm import BasicLSTM
 from base_params import BaseParams
 
@@ -53,35 +53,26 @@ class BeamSearch(BaseParams):
     def map_dec_variables(self, var_dict):
         """Map loaded tensors from names to variables."""
         params = Bunch()
+        # LSTM params
         params.lm_lstm_w = var_dict[
-            "model/rnn_decoder_char/rnn/basic_lstm_cell/kernel"]
+            "model/rnn_decoder_char/rnn/lm/basic_lstm_cell/kernel"]
         params.lm_lstm_b = var_dict[
-            "model/rnn_decoder_char/rnn/basic_lstm_cell/bias"]
+            "model/rnn_decoder_char/rnn/lm/basic_lstm_cell/bias"]
         params.dec_lstm_w = var_dict[
-            "model/rnn_decoder_char/rnn/basic_lstm_cell_1/kernel"]
+            "model/rnn_decoder_char/rnn/basic_lstm_cell/kernel"]
         params.dec_lstm_b = var_dict[
-            "model/rnn_decoder_char/rnn/basic_lstm_cell_1/bias"]
+            "model/rnn_decoder_char/rnn/basic_lstm_cell/bias"]
 
+        # Attn parameters
         params.attn_dec_w = var_dict[
             "model/rnn_decoder_char/rnn/Attention/kernel"]
         params.attn_dec_b = var_dict[
             "model/rnn_decoder_char/rnn/Attention/bias"]
+        params.attn_enc_w = np.squeeze(var_dict["model/rnn_decoder_char/AttnW"])
+        params.attn_v = var_dict["model/rnn_decoder_char/AttnV"]
 
-        params.inp_w = var_dict[
-            "model/rnn_decoder_char/rnn/InputProjection/kernel"]
-        params.inp_b = var_dict[
-            "model/rnn_decoder_char/rnn/InputProjection/bias"]
-
-        params.attn_proj_w = var_dict[
-            "model/rnn_decoder_char/rnn/AttnProjection/kernel"]
-        params.attn_proj_b = var_dict[
-            "model/rnn_decoder_char/rnn/AttnProjection/bias"]
-
-        params.out_w = var_dict[
-            "model/rnn_decoder_char/rnn/OutputProjection/kernel"]
-        params.out_b = var_dict[
-            "model/rnn_decoder_char/rnn/OutputProjection/bias"]
-
+        # LM params
+        params.lm_embedding = var_dict["model/rnn_decoder_char/decoder/embedding"]
         if "model/rnn_decoder_char/rnn/SimpleProjection/kernel" in var_dict:
             params.simple_w = var_dict[
                 "model/rnn_decoder_char/rnn/SimpleProjection/kernel"]
@@ -91,12 +82,46 @@ class BeamSearch(BaseParams):
             params.simple_w = None
             params.simple_b = None
 
-        params.attn_enc_w = np.squeeze(var_dict["model/rnn_decoder_char/AttnW"])
+        params.out_lm_w = var_dict[
+            "model/rnn_decoder_char/rnn/OutputProjection/kernel"]
+        params.out_lm_b = var_dict[
+            "model/rnn_decoder_char/rnn/OutputProjection/bias"]
 
-        params.attn_v = var_dict["model/rnn_decoder_char/AttnV"]
+        # Gating params
+        # Logit DNN
+        params.dnn1_w = var_dict[
+            "model/rnn_decoder_char/rnn/DNN1/kernel"]
+        params.dnn1_b = var_dict[
+            "model/rnn_decoder_char/rnn/DNN1/bias"]
+        # Attn Proj
+        params.attn_proj_w = var_dict[
+            "model/rnn_decoder_char/rnn/AttnProjection/kernel"]
+        params.attn_proj_b = var_dict[
+            "model/rnn_decoder_char/rnn/AttnProjection/bias"]
+        # LM Gate
+        params.gate_lm_w = var_dict[
+            "model/rnn_decoder_char/rnn/Gate_LM/kernel"]
+        params.gate_lm_b = var_dict[
+            "model/rnn_decoder_char/rnn/Gate_LM/bias"]
+        # Comb State - DNN2
+        params.dnn2_w = var_dict[
+            "model/rnn_decoder_char/rnn/DNN2/kernel"]
+        params.dnn2_b = var_dict[
+            "model/rnn_decoder_char/rnn/DNN2/bias"]
+        # OutputProjection_Final
+        params.out_w = var_dict[
+            "model/rnn_decoder_char/rnn/OutputProjection_Final/kernel"]
+        params.out_b = var_dict[
+            "model/rnn_decoder_char/rnn/OutputProjection_Final/bias"]
 
-        params.embedding = var_dict["model/rnn_decoder_char/decoder/embedding"]
+        params.inp_w = var_dict[
+            "model/rnn_decoder_char/rnn/InputProjection/kernel"]
+        params.inp_b = var_dict[
+            "model/rnn_decoder_char/rnn/InputProjection/bias"]
+
+        params.dec_embedding = var_dict["model/rnn_decoder_char/decoder/dec_embedding"]
         total_elems = 0
+        print ("Total variables: %d\n" %len(params.items()))
         for _, value in params.items():
             if value is not None:
                 params_shape = value.shape
@@ -173,42 +198,64 @@ class BeamSearch(BaseParams):
         # Set up LM components
         lm_lstm = BasicLSTM(lm_params.lstm_w, lm_params.lstm_b)
         # LM uses a zero attn vector
-        zero_attn = np.zeros(encoder_hidden_states.shape[1])
 
-        def get_top_k(x, x_lm, state_list, context_vec,
+        def get_top_k(x_dec, x_dec_lm, x_lm, state_list, context_vec,
                       beam_size=search_params.beam_size):
             dec_state, dec_lm_state, lm_state = state_list
 
-            dec_lm_state = dec_lm_lstm(x, dec_lm_state)
+            # Run dec LSTM
+            x_dec = np.matmul(np.concatenate((x_dec, context_vec), axis=0), params.inp_w) + params.inp_b
+            dec_state = dec_lstm(x_dec, dec_state)
+
+            # Attn state
+            attn_state = attention_call(dec_state[0])
+            context_vec = attn_state[0]
+
+            # ASR model state
+            model_state = np.concatenate((dec_state[0], attn_state[0]))
+            model_state = np.matmul(model_state, params.attn_proj_w) + params.attn_proj_b
+
+            ## LM
+            # Run LM Dec
+            dec_lm_state = dec_lm_lstm(x_dec_lm, dec_lm_state)
             dec_lm_output = dec_lm_state[1]
 
             if params.simple_w is not None:
                 dec_lm_output = (np.matmul(dec_lm_output, params.simple_w) +
                                  params.simple_b)
-            context_lm_comb = np.concatenate((dec_lm_output, context_vec), axis=0)
-            x_dec = np.matmul(context_lm_comb, params.inp_w) + params.inp_b
+            # LM logit
+            dec_lm_logit = np.matmul(dec_lm_output, params.out_lm_w) + params.out_lm_b
+            # LM state after passing through DNN1
+            dnn_lm_state = relu(np.matmul(dec_lm_logit, params.dnn1_w) + params.dnn1_b)
 
-            dec_state = dec_lstm(x_dec, dec_state)
 
-            context_vec, _ = attention_call(dec_state[0])
-            context_dec_comb = np.concatenate((dec_state[0], context_vec), axis=0)
-            proj_output = np.matmul(context_dec_comb, params.attn_proj_w) + params.attn_proj_b
+            gate_lm = sigmoid(np.matmul
+                              (np.concatenate((model_state, dnn_lm_state), axis=0), params.gate_lm_w)
+                              + params.gate_lm_b)
+
+            # Final output calculation
+            comb_state = np.concatenate((model_state, np.multiply(dnn_lm_state, gate_lm)), axis=0)
+            proj_output = relu(np.matmul(comb_state, params.dnn2_w) + params.dnn2_b)
+
             output_dec_probs = softmax(np.matmul(proj_output, params.out_w) +
                                        params.out_b)
             log_dec_probs = np.log(output_dec_probs)
 
-            lm_state = lm_lstm(x_lm, lm_state)
-            lm_output = lm_state[1]
-            if lm_params.simple_w is not None:
-                lm_output = (np.matmul(lm_output, lm_params.simple_w) +
-                             lm_params.simple_b)
-            output_lm_probs = softmax(np.matmul(lm_output, lm_params.out_w) +
-                                      lm_params.out_b)
-            log_lm_probs = np.log(output_lm_probs)
-            combined_log_probs = log_dec_probs + search_params.lm_weight * log_lm_probs
+            combined_log_probs = log_dec_probs
+
+            if search_params.lm_weight > 0.0:
+                lm_state = lm_lstm(x_lm, lm_state)
+                lm_output = lm_state[1]
+                if lm_params.simple_w is not None:
+                    lm_output = (np.matmul(lm_output, lm_params.simple_w) +
+                                 lm_params.simple_b)
+                output_lm_probs = softmax(np.matmul(lm_output, lm_params.out_w) +
+                                          lm_params.out_b)
+                log_lm_probs = np.log(output_lm_probs)
+
+                combined_log_probs += search_params.lm_weight * log_lm_probs
 
             length_loss = 0.0
-
             combined_score = combined_log_probs + length_loss
 
             top_k_indices = np.argpartition(combined_score, -beam_size)[-beam_size:]
@@ -229,7 +276,8 @@ class BeamSearch(BaseParams):
         lm_params = self.lm_params
         get_top_k_fn = self.top_k_setup_with_lm(encoder_hidden_states)
 
-        x = params.embedding[data_utils.GO_ID]
+        x_dec = params.dec_embedding[data_utils.GO_ID]
+        x_dec_lm = params.lm_embedding[data_utils.GO_ID]
         x_lm = lm_params.embedding[data_utils.GO_ID]
 
         # Initialize Decoder states
@@ -253,7 +301,7 @@ class BeamSearch(BaseParams):
 
         # Run step 0 separately
         top_k_indices, top_k_model_scores, top_k_scores, state_list, context_vec =\
-            get_top_k_fn(x, x_lm, [zero_dec_state, zero_dec_lm_state, zero_lm_state],
+            get_top_k_fn(x_dec, x_dec_lm, x_lm, [zero_dec_state, zero_dec_lm_state, zero_lm_state],
                          zero_attn, beam_size=k)
         for idx in xrange(top_k_indices.shape[0]):
             output_tuple = (BeamEntry([top_k_indices[idx]], state_list, context_vec),
@@ -276,11 +324,12 @@ class BeamSearch(BaseParams):
             model_score_list = []
             index_list = []
             for candidate, cand_score in output_list:
-                x = params.embedding[candidate.get_last_output()]
+                x_dec = params.dec_embedding[candidate.get_last_output()]
+                x_dec_lm = params.lm_embedding[candidate.get_last_output()]
                 x_lm = lm_params.embedding[candidate.get_last_output()]
 
                 top_k_indices, top_k_model_scores, top_k_scores, state_list, context_vec =\
-                    get_top_k_fn(x, x_lm, candidate.get_dec_state(),
+                    get_top_k_fn(x_dec, x_dec_lm, x_lm, candidate.get_dec_state(),
                                  candidate.get_context_vec(), beam_size=k)
 
                 next_dec_states.append(state_list)
@@ -344,7 +393,7 @@ class BeamSearch(BaseParams):
         parser.add_argument("-beam_size", default=1, type=int, help="Beam size")
         parser.add_argument("-lm_weight", default=0.0, type=float, help="LM weight in decoding")
         parser.add_argument("-lm_path", default="/share/data/speech/shtoshni/research/asr_multi/"
-                            "code/lm/models/run_id_101/lm.ckpt-246000", type=str,
+                            "code/lm/models/best_models/run_id_301/lm.ckpt-250000", type=str,
                             help="LM ckpt path")
         parser.add_argument("-cov_penalty", default=0.0, type=float,
                             help="Coverage penalty")

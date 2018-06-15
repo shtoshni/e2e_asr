@@ -6,7 +6,6 @@ from __future__ import division
 import math
 import os
 import sys
-import multiprocessing as mp
 
 import time
 import random
@@ -15,15 +14,13 @@ import cPickle as pickle
 import argparse
 
 import numpy as np
+#import cupy as cp
 import tensorflow as tf
 
 from os import path
 from datetime import timedelta
 from bunch import Bunch
 from edit_distance import SequenceMatcher as ed
-from functools import reduce
-from multiprocessing import Queue
-from multiprocessing import Process
 
 import data_utils
 import swbd_utils
@@ -138,14 +135,15 @@ class Eval(BaseParams):
                                self.model.decoder_inputs["char"]]
 
                 encoder_hidden_states, seq_lens, utt_ids, gold_ids = sess.run(output_feed)
+                encoder_hidden_states = np.asarray(encoder_hidden_states)
                 batch_size = encoder_hidden_states.shape[0]
                 for idx in xrange(batch_size):
                     hidden_states_list.append(encoder_hidden_states[idx, :seq_lens[idx], :])
                     utt_id_list.append(utt_ids[idx])
                     gold_id_list.append(np.array(gold_ids[1:, idx]))  # Ignore the GO_ID
                     counter += 1
-                if counter > 300:
-                    break
+                #if counter > 1000:
+                #    break
             except tf.errors.OutOfRangeError:
                 total_exec = True
                 break
@@ -168,13 +166,13 @@ class Eval(BaseParams):
         tf_out_file = get_tf_exec_file()
         load_success = True
         try:
-            #hidden_states_list, utt_id_list, gold_id_list = pickle.load(open(tf_out_file, "r"))
+            hidden_states_list, utt_id_list, gold_id_list = pickle.load(open(tf_out_file, "r"))
             print ("Loaded output of previous execution of TF from %s" %tf_out_file)
         except EOFError:
             load_success = False
         except IOError:
             load_success = False
-        load_success = False
+        #load_success = False
 
         if not load_success:
             # Execute the tensorflow part first to get the encoder_hidden_states etc
@@ -189,67 +187,14 @@ class Eval(BaseParams):
         print ("Total instances: %d" %len(hidden_states_list))
         rev_normalizer = swbd_utils.reverse_swbd_normalizer()
 
-        beam_search = BeamSearch(ckpt_path,
-                                 search_params=beam_search_params)
+
+        beam_search = BeamSearch(ckpt_path, search_params=beam_search_params)
+
         beam_output_list = []
-
-
-        class BeamSearchSplit(Process):
-            def __init__(self, ckpt_path, search_params,
-                         hidden_states_list, out_q):
-                Process.__init__(self)
-                self.beam_search = BeamSearch(ckpt_path,
-                                              search_params=search_params)
-                self.hidden_states_list = hidden_states_list
-                self.out_q = out_q
-
-            def run(self):
-                output_list = []
-                for idx, hidden_states in enumerate(self.hidden_states_list):
-                    output_list.append(self.beam_search(hidden_states))
-                    if (idx + 1) % 100 == 0:
-                        print ("Counter: %d, ID: %d" %(idx + 1, p_id))
-                self.out_q.put(output_list)
-
-
-        def search_split(hidden_states_list, p_id, out_q):
-            beam_search = BeamSearch(ckpt_path,
-                                 search_params=beam_search_params)
-            output_list = []
-            for idx, hidden_states in enumerate(hidden_states_list):
-                output_list.append(beam_search(hidden_states))
-                if (idx + 1) % 100 == 0:
-                    print ("Counter: %d, ID: %d" %(idx + 1, p_id))
-            out_q.put(output_list)
-        num_inst = len(hidden_states_list)
-        #split_frac = [0]
-        #split_frac = [0, 0.7]
-        split_frac = [0, 0.45, 0.7, 0.9]
-        #split_frac = [0, 0.2, 0.4, 0.6, 0.75, 0.85, 0.9, 0.95]
-        split_point = [int(frac_point * num_inst) for frac_point in split_frac]
-
-        out_q = Queue()
-
-        process_list = []
-        for p_id in xrange(len(split_frac)):
-            start_idx = split_point[p_id]
-            end_idx = (split_point[p_id + 1] if p_id < (len(split_frac) - 1) else num_inst)
-            #proc = mp.Process(target=search_split,
-            #                  args=(hidden_states_list[start_idx: end_idx], p_id, out_q)
-            #                  )
-            proc = BeamSearchSplit(ckpt_path, beam_search_params, hidden_states_list[start_idx: end_idx], out_q)
-            proc.start()
-            process_list.append(proc)
-
-        for proc in process_list:
-            proc.join()
-
-        output_chunk_list = [out_q.get() for i in xrange(len(split_frac))]
-        # Sort the chunks
-        output_chunk_list = sorted(output_chunk_list, key=lambda chunk: len(chunk), reverse=True)
-        beam_output_list = reduce(lambda x, y: x + y, output_chunk_list)
-
-
+        for idx, hidden_states in enumerate(hidden_states_list):
+            beam_output_list.append(beam_search(hidden_states))
+            if (idx + 1) % 100 == 0:
+                print ("Counter: %d" %(idx + 1))
 
         print ("Beam search done!")
 
@@ -307,7 +252,7 @@ class Eval(BaseParams):
         wp_id_list = list(wp_array)
         if data_utils.EOS_ID in wp_id_list:
             wp_id_list = wp_id_list[:wp_id_list.index(data_utils.EOS_ID)]
-        wp_list = [tf.compat.as_str(reverse_char_vocab[piece_id])
+        wp_list = [tf.compat.as_str(reverse_char_vocab[int(piece_id)])
                    for piece_id in wp_id_list]
         sent = (''.join(wp_list).replace('▁', ' ')).strip()
         return normalizer(sent)
